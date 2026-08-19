@@ -1,6 +1,6 @@
 # ramansep
 
-[![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.22014914-blue)](https://doi.org/10.5281/zenodo.22014914) [![tests](https://github.com/TaN-MM-Org/ramansep/actions/workflows/ci.yml/badge.svg)](https://github.com/TaN-MM-Org/ramansep/actions)
+[![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.22014913-blue)](https://doi.org/10.5281/zenodo.22014913) [![tests](https://github.com/TaN-MM-Org/ramansep/actions/workflows/ci.yml/badge.svg)](https://github.com/TaN-MM-Org/ramansep/actions)
 
 Separate **strain** from **carrier density** in Raman maps of 2D materials,
 using two phonon modes whose lever arms differ.

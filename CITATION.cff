@@ -10,5 +10,8 @@ license: Apache-2.0
 repository-code: "https://github.com/TaN-MM-Org/ramansep"
 identifiers:
   - type: doi
-    value: 10.5281/zenodo.22014914
-    description: "Zenodo archive of the first release (v0.1.0); each release is archived under its own version DOI"
+    value: 10.5281/zenodo.22014913
+    description: "Concept DOI for all versions; resolves to the latest release"
+  - type: doi
+    value: 10.5281/zenodo.22018515
+    description: "Zenodo archive of v0.2.0"
