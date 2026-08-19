@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ramansep"
-version = "0.1.0"
+version = "0.2.0"
 description = "Separate strain from carrier density in 2D-material Raman maps using a two-mode linear inversion"
 readme = "README.md"
 license = { text = "Apache-2.0" }
