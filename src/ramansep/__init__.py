@@ -11,7 +11,9 @@ metal dichalcogenides" (under review). The solver is material-agnostic:
 you supply the coefficient matrix for your material and mode pair.
 """
 from .core import SeparationModel, SeparationResult
-from .materials import ModeCoefficients, synthetic_demo
+from .materials import (ModeCoefficients, mos2_a1_2la, mos2_eprime_a1,
+                        synthetic_demo)
 
-__version__ = "0.1.0"
-__all__ = ["SeparationModel", "SeparationResult", "ModeCoefficients", "synthetic_demo"]
+__version__ = "0.2.0"
+__all__ = ["SeparationModel", "SeparationResult", "ModeCoefficients",
+           "synthetic_demo", "mos2_a1_2la", "mos2_eprime_a1"]
