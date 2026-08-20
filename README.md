@@ -1,6 +1,6 @@
 # ramansep
 
-[![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.22014913-blue)](https://doi.org/10.5281/zenodo.22014913) [![tests](https://github.com/TaN-MM-Org/ramansep/actions/workflows/ci.yml/badge.svg)](https://github.com/TaN-MM-Org/ramansep/actions)
+[![PyPI](https://img.shields.io/pypi/v/ramansep)](https://pypi.org/project/ramansep/) [![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.22014913-blue)](https://doi.org/10.5281/zenodo.22014913) [![tests](https://github.com/TaN-MM-Org/ramansep/actions/workflows/ci.yml/badge.svg)](https://github.com/TaN-MM-Org/ramansep/actions)
 
 Separate **strain** from **carrier density** in Raman maps of 2D materials,
 using two phonon modes whose lever arms differ.
@@ -56,8 +56,10 @@ provenance of every number travels with the analysis.
 ## Install
 
 ```
-pip install -e .
+pip install ramansep
 ```
+
+For development, clone the repository and `pip install -e .[test]`.
 
 ## Use
 
