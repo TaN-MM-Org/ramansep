@@ -4,12 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ramansep"
-version = "0.2.0"
+version = "0.2.1"
 description = "Separate strain from carrier density in 2D-material Raman maps using a two-mode linear inversion"
 readme = "README.md"
 license = { text = "Apache-2.0" }
 authors = [{ name = "Tanvir M. Mahim", email = "tanvir.mahim@bracu.ac.bd" }]
 requires-python = ">=3.9"
+keywords = ["Raman spectroscopy", "2D materials", "MoS2", "strain", "carrier density", "TMD"]
 dependencies = ["numpy>=1.22"]
 classifiers = [
   "Development Status :: 3 - Alpha",
@@ -24,7 +25,10 @@ plot = ["matplotlib"]
 test = ["pytest"]
 
 [project.urls]
-Homepage = "https://tanvir-mahmud-mahim.github.io"
+Homepage = "https://tanvir-mahmud-mahim.github.io/software/"
+Repository = "https://github.com/TaN-MM-Org/ramansep"
+Issues = "https://github.com/TaN-MM-Org/ramansep/issues"
+Changelog = "https://github.com/TaN-MM-Org/ramansep/releases"
 
 [tool.setuptools.packages.find]
 where = ["src"]
