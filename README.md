@@ -13,10 +13,10 @@ propagated uncertainties.
 
 ## Status
 
-v0.2.1 (alpha). The inversion core, uncertainty propagation, conditioning
-diagnostics, a synthetic end-to-end example, and two cited coefficient
-sets for monolayer MoS2 are implemented and tested. The API may change
-before v1.0.
+v0.3.0 (alpha). The inversion core, uncertainty propagation, conditioning
+diagnostics, a synthetic end-to-end example, two cited coefficient sets
+for monolayer MoS2, and a cited graphene G + 2D set are implemented and
+tested. The API may change before v1.0.
 
 ## Cited coefficient sets (new in v0.2)
 
@@ -39,14 +39,26 @@ from them (edge charge of 2.3e12 cm^-2 from a 0.5 cm^-1 A'1 redshift with
   times the strain uncertainty of the A'1 + 2LA(M) pair; it is included
   for comparison and for workflows where the overtone is not available.
 
+New in v0.3, `graphene_g_2d_lee2012()`: the G + 2D pair of monolayer
+graphene, expressing the vector decomposition of Lee et al., Nat. Commun.
+3, 1024 (2012) as a linear inversion. Strain axis: -23.5 cm^-1 per percent
+of randomly oriented uniaxial strain with the measured 2D/G slope of
+2.2 +/- 0.2; hole-doping axis: the measured slope 0.70 +/- 0.05. The
+doping output of this set is deliberately NOT a carrier density but the
+G-band shift attributable to hole doping (cm^-1): the G-mode doping
+response of graphene is nonlinear and sign-dependent, so no universal
+linear per-density rate exists to ship, and the docstring points to the
+gated calibrations (Froehlicher and Berciaud, Phys. Rev. B 91, 205413
+(2015)) a user needs for the conversion on their own substrate.
+
 Each function's docstring states which number comes from which source and
-the conditions of applicability (1H monolayer, SiO2-supported, 300 K;
-532 nm for the disorder-activated calibration). Check that your sample
-matches before use.
+the conditions of applicability (for MoS2: 1H monolayer, SiO2-supported,
+300 K; 532 nm for the disorder-activated calibration). Check that your
+sample matches before use.
 
 ## What this package deliberately does not include
 
-No constants beyond the two documented MoS2 sets are shipped. Lever arms
+No constants beyond the three documented sets are shipped. Lever arms
 depend on material, mode pair, excitation wavelength and substrate; a
 measurement tool that ships unverified constants propagates wrong results.
 For any other system you provide a `ModeCoefficients` from the literature
