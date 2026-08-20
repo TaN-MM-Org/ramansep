@@ -113,6 +113,68 @@ def mos2_a1_2la() -> ModeCoefficients:
     )
 
 
+def graphene_g_2d_lee2012() -> ModeCoefficients:
+    """Monolayer graphene, G + 2D pair: the Lee et al. vector decomposition.
+
+    This set expresses the correlation analysis of Lee, Ahn, Shim, Lee and
+    Ryu (Nat. Commun. 3, 1024 (2012)) as a linear two-mode inversion. The
+    strain axis uses their G-band rate for randomly oriented uniaxial
+    strain, -23.5 cm^-1 per percent (computed in the source from the
+    uniaxial data of Yoon et al., accounting for G-mode splitting and
+    random crystallographic orientation), and their measured strain-axis
+    slope (dw_2D/dw_G) of 2.2 +/- 0.2, giving a 2D rate of
+    2.2 x (-23.5) = -51.7 cm^-1 per percent. The hole-doping axis uses
+    their refined slope (dw_2D/dw_G) of 0.70 +/- 0.05.
+
+    UNIT HONESTY, on purpose: the "density" returned by this set is NOT a
+    carrier density. It is the G-band shift attributable to hole doping,
+    in cm^-1 (positive = hole doping). The G-mode doping response of
+    graphene is nonlinear and sign-dependent (Kohn-anomaly physics), so no
+    universal linear cm^-1-per-density rate exists to ship; publishing one
+    here would misrepresent the physics. To convert the doping coordinate
+    to a Fermi level, use a gated calibration measured on your substrate,
+    e.g. the asymptotic relations of Froehlicher and Berciaud, Phys. Rev.
+    B 91, 205413 (2015) (for holes, E_F [meV] ~ 21 dw_G + 75 at
+    |E_F| >= 100 meV), and then to a density via the graphene dispersion.
+
+    For biaxial strain the source compiles a G-band rate of
+    -69.1 +/- 3.4 cm^-1 per percent, but the corresponding 2D/G ratio is
+    not settled to a single value there (experiments 2.45-2.8, theory
+    2.25-2.48), so no biaxial set is shipped; build your own
+    ModeCoefficients with a chosen ratio and cite it.
+
+    Units: percent uniaxial strain (randomly oriented, positive =
+    tension); doping coordinate in cm^-1 of hole-doping G shift.
+    Applicability: monolayer graphene on SiO2, 514/532 nm excitation,
+    room temperature, hole doping (the electron-side slope differs).
+
+    Note on conditioning: the raw condition number of this matrix (~92)
+    is an artifact of the mixed units (percent vs cm^-1) and will trip
+    the default condition_warn; pass condition_warn=100 to
+    SeparationModel. The physically meaningful metric, noise
+    amplification, is moderate for this pair (unit shift noise on both
+    modes costs 0.035 percent of strain and 1.6 cm^-1 of doping
+    coordinate) and is asserted in the test suite.
+    """
+    return ModeCoefficients(
+        mode1_name="G",
+        mode2_name="2D",
+        k1_strain=-23.5,
+        k1_density=1.0,
+        k2_strain=-51.7,
+        k2_density=0.70,
+        reference=(
+            "J. E. Lee, G. Ahn, J. Shim, Y. S. Lee and S. Ryu, 'Optical "
+            "separation of mechanical strain from charge doping in "
+            "graphene', Nat. Commun. 3, 1024 (2012): G strain rate "
+            "-23.5 cm^-1/% (uniaxial, randomly oriented; computed there "
+            "from Yoon et al.), strain-axis slope 2.2 +/- 0.2, "
+            "hole-doping-axis slope 0.70 +/- 0.05. Doping coordinate "
+            "deliberately left in cm^-1 of G shift; see docstring."
+        ),
+    )
+
+
 def mos2_eprime_a1() -> ModeCoefficients:
     """Monolayer 1H-MoS2, E' + A'1 pair, from direct biaxial measurements.
 
