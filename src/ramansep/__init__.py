@@ -14,6 +14,6 @@ from .core import SeparationModel, SeparationResult
 from .materials import (ModeCoefficients, mos2_a1_2la, mos2_eprime_a1,
                         synthetic_demo)
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 __all__ = ["SeparationModel", "SeparationResult", "ModeCoefficients",
            "synthetic_demo", "mos2_a1_2la", "mos2_eprime_a1"]
