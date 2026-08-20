@@ -13,7 +13,7 @@ propagated uncertainties.
 
 ## Status
 
-v0.2.0 (alpha). The inversion core, uncertainty propagation, conditioning
+v0.2.1 (alpha). The inversion core, uncertainty propagation, conditioning
 diagnostics, a synthetic end-to-end example, and two cited coefficient
 sets for monolayer MoS2 are implemented and tested. The API may change
 before v1.0.
