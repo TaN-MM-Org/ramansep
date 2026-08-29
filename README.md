@@ -110,12 +110,40 @@ developed in:
 This package is the general-purpose, material-agnostic inversion tool; the
 paper repository reproduces the specific published study.
 
+## Peak fitting (new in v0.4)
+
+The roadmap's front end is in: `fit_two_modes` takes a raw spectrum,
+fits a Lorentzian to each mode window with a NumPy-only
+Levenberg-Marquardt solver (analytic Jacobians, linearized 1-sigma
+uncertainties), and returns exactly the shifts and uncertainties that
+`SeparationModel.invert` consumes.
+
+```python
+from ramansep import SeparationModel, fit_two_modes, mos2_a1_2la
+
+model = SeparationModel(mos2_a1_2la())
+dw1, dw2, s1, s2, fit1, fit2 = fit_two_modes(
+    wavenumber, counts,
+    window1=(395.0, 415.0), window2=(440.0, 465.0),
+    ref1=404.7, ref2=452.0)   # your pristine references
+result = model.invert(dw1, dw2, s1, s2)
+```
+
+The fitter is deliberately Lorentzian-only: that is the lifetime
+lineshape of a phonon, and an instrument-dominated line deserves a
+Voigt treatment this package does not yet pretend to have. The test
+suite checks the analytic Jacobian against finite differences, exact
+parameter recovery on noiseless lines, statistical compatibility of
+the reported center uncertainty with the actual scatter on noisy
+lines, and a full spectrum-to-inversion round trip.
+
 ## Roadmap
 
 - v0.2 (done): documented example coefficient sets with citations
-- v0.3: peak-fitting front end (load spectra, fit the two modes, feed the
+- v0.3 (done): graphene G+2D coefficient set (Lee 2012)
+- v0.4 (done): peak-fitting front end (fit the two modes, feed the
   inversion)
-- v0.4: joint Bayesian inversion with spatial priors
+- v0.5: joint Bayesian inversion with spatial priors
 
 ## Support and governance
 
