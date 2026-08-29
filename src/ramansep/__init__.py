@@ -11,10 +11,12 @@ metal dichalcogenides" (under review). The solver is material-agnostic:
 you supply the coefficient matrix for your material and mode pair.
 """
 from .core import SeparationModel, SeparationResult
+from .fitting import PeakFit, fit_lorentzian, fit_two_modes, lorentzian
 from .materials import (ModeCoefficients, graphene_g_2d_lee2012,
                         mos2_a1_2la, mos2_eprime_a1, synthetic_demo)
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 __all__ = ["SeparationModel", "SeparationResult", "ModeCoefficients",
            "synthetic_demo", "mos2_a1_2la", "mos2_eprime_a1",
-           "graphene_g_2d_lee2012"]
+           "graphene_g_2d_lee2012",
+           "PeakFit", "fit_lorentzian", "fit_two_modes", "lorentzian"]
