@@ -13,10 +13,11 @@ propagated uncertainties.
 
 ## Status
 
-v0.3.0 (alpha). The inversion core, uncertainty propagation, conditioning
+v0.5.0 (alpha). The inversion core, uncertainty propagation, conditioning
 diagnostics, a synthetic end-to-end example, two cited coefficient sets
-for monolayer MoS2, and a cited graphene G + 2D set are implemented and
-tested. The API may change before v1.0.
+for monolayer MoS2, a cited graphene G + 2D set, a peak-fitting front
+end, and the overdetermined multimode GLS inversion with its chi-square
+model check are implemented and tested. The API may change before v1.0.
 
 ## More than two modes, with model checking (new in v0.5)
 
@@ -163,7 +164,9 @@ lines, and a full spectrum-to-inversion round trip.
 - v0.3 (done): graphene G+2D coefficient set (Lee 2012)
 - v0.4 (done): peak-fitting front end (fit the two modes, feed the
   inversion)
-- v0.5: joint Bayesian inversion with spatial priors
+- v0.5 (done): overdetermined multimode GLS inversion with per-pixel
+  chi-square model checking and mode-set comparison
+- v0.6: joint Bayesian inversion with spatial priors
 
 ## Support and governance
 
