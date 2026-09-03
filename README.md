@@ -18,6 +18,26 @@ diagnostics, a synthetic end-to-end example, two cited coefficient sets
 for monolayer MoS2, and a cited graphene G + 2D set are implemented and
 tested. The API may change before v1.0.
 
+## More than two modes, with model checking (new in v0.5)
+
+`MultiModeModel` generalizes the inversion to any number of modes by
+weighted (Gauss-Markov) least squares: each extra mode shrinks the
+strain and density uncertainties, and the redundancy buys a per-pixel
+chi-square goodness-of-fit with m - 2 degrees of freedom, so pixels where
+strain and density alone cannot explain the shifts (a third latent
+variable, a phase boundary, a bad fit) are flagged by their p-value map,
+something no exactly determined two-mode inversion can detect.
+`compare_mode_sets` ranks candidate mode subsets by the uncertainty they
+deliver. For two modes the estimator reduces exactly to the 2x2 core
+inversion (asserted to machine precision in the tests).
+
+```python
+from ramansep import MultiModeModel
+mm = MultiModeModel(K)                     # K: (m, 2) lever arms
+res = mm.invert([dw1, dw2, dw3], sigmas=[0.15, 0.10, 0.12])
+suspect = res.p_value < 1e-3               # model-violation map
+```
+
 ## Cited coefficient sets (new in v0.2)
 
 Two example sets for monolayer 1H-MoS2 ship with full provenance, and the
