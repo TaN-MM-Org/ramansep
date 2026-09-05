@@ -13,11 +13,13 @@ propagated uncertainties.
 
 ## Status
 
-v0.5.0 (alpha). The inversion core, uncertainty propagation, conditioning
-diagnostics, a synthetic end-to-end example, two cited coefficient sets
-for monolayer MoS2, a cited graphene G + 2D set, a peak-fitting front
-end, and the overdetermined multimode GLS inversion with its chi-square
-model check are implemented and tested. The API may change before v1.0.
+v0.6.0 (alpha). Implemented and tested (44 tests, Python 3.9-3.13):
+the inversion core, uncertainty propagation, conditioning diagnostics,
+a synthetic end-to-end example, two cited coefficient sets for
+monolayer MoS2, a cited graphene G + 2D set, a peak-fitting front end
+(Lorentzian and Voigt), the overdetermined multimode GLS inversion
+with its chi-square model check, and the joint Bayesian map inversion
+with spatial smoothness priors. The API may change before v1.0.
 
 ## More than two modes, with model checking (new in v0.5)
 
@@ -150,13 +152,16 @@ dw1, dw2, s1, s2, fit1, fit2 = fit_two_modes(
 result = model.invert(dw1, dw2, s1, s2)
 ```
 
-The fitter is deliberately Lorentzian-only: that is the lifetime
-lineshape of a phonon, and an instrument-dominated line deserves a
-Voigt treatment this package does not yet pretend to have. The test
-suite checks the analytic Jacobian against finite differences, exact
-parameter recovery on noiseless lines, statistical compatibility of
-the reported center uncertainty with the actual scatter on noisy
-lines, and a full spectrum-to-inversion round trip.
+Two lineshapes are offered and the choice is stated, not hidden:
+`fit_lorentzian` for the lifetime lineshape of a phonon, and
+`fit_voigt` (v0.6) for instrument-dominated lines, via the Faddeeva
+function with an analytic Jacobian. The test suite checks both
+Jacobians against finite differences, exact parameter recovery on
+noiseless lines, the Voigt profile's exact Gaussian limit at zero
+Lorentzian width and its convergence to the Lorentzian at zero
+Gaussian width, statistical compatibility of the reported center
+uncertainty with the actual scatter on noisy lines, and a full
+spectrum-to-inversion round trip.
 
 ## Roadmap
 
@@ -166,7 +171,22 @@ lines, and a full spectrum-to-inversion round trip.
   inversion)
 - v0.5 (done): overdetermined multimode GLS inversion with per-pixel
   chi-square model checking and mode-set comparison
-- v0.6: joint Bayesian inversion with spatial priors
+- v0.6 (done): joint Bayesian inversion with spatial priors
+  (`bayesian_map_inversion`: Gaussian Markov random field smoothness
+  prior on both fields, solved exactly as a sparse linear MAP problem;
+  lam = 0 reproduces the per-pixel GLS maps and sigmas to machine
+  precision, asserted in the tests) and a Voigt fitter (`fit_voigt`)
+  for instrument-dominated lines
+
+The roadmap is complete. Deliberate scope, designed out rather than
+overlooked: no shipped coefficient values beyond the cited example
+sets (your material and mode pair need your calibration, with its
+citation); the smoothness weights `lam_strain` / `lam_density` are
+user-chosen regularization, not estimated hyperparameters -- full
+hierarchical (evidence-maximizing) inference would need assumptions
+about the noise this package refuses to invent; and the spatial prior
+is the 4-neighbor lattice with Neumann boundaries, stated plainly,
+not a tunable kernel zoo.
 
 ## Support and governance
 
