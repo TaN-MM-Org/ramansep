@@ -15,13 +15,15 @@ from .fitting import (PeakFit, VoigtFit, fit_lorentzian, fit_two_modes,
                       fit_voigt, lorentzian, voigt)
 from .multimode import MultiModeModel, MultiModeResult, compare_mode_sets
 from .bayesian import BayesianMapResult, bayesian_map_inversion
+from .calibration import CalibrationResult, calibrate_lever_arms
 from .materials import (ModeCoefficients, graphene_g_2d_lee2012,
                         mos2_a1_2la, mos2_eprime_a1, synthetic_demo)
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 __all__ = ["SeparationModel", "SeparationResult", "ModeCoefficients",
            "MultiModeModel", "MultiModeResult", "compare_mode_sets",
            "BayesianMapResult", "bayesian_map_inversion",
+           "CalibrationResult", "calibrate_lever_arms",
            "synthetic_demo", "mos2_a1_2la", "mos2_eprime_a1",
            "graphene_g_2d_lee2012",
            "PeakFit", "fit_lorentzian", "fit_two_modes", "lorentzian",
