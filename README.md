@@ -13,13 +13,49 @@ propagated uncertainties.
 
 ## Status
 
-v0.6.0 (alpha). Implemented and tested (44 tests, Python 3.9-3.13):
+v0.7.0 (alpha). Implemented and tested (50 tests, Python 3.9-3.13):
 the inversion core, uncertainty propagation, conditioning diagnostics,
 a synthetic end-to-end example, two cited coefficient sets for
 monolayer MoS2, a cited graphene G + 2D set, a peak-fitting front end
 (Lorentzian and Voigt), the overdetermined multimode GLS inversion
-with its chi-square model check, and the joint Bayesian map inversion
-with spatial smoothness priors. The API may change before v1.0.
+with its chi-square model check, the joint Bayesian map inversion
+with spatial smoothness priors, and lever-arm calibration from the
+user's own reference measurements. The API may change before v1.0.
+
+## Calibrate your own lever arms (new in v0.7)
+
+The shipped coefficient sets all carry the same caveat: lever arms
+depend on material, mode pair, excitation and substrate. The rigorous
+response is a calibration on reference states you control -- a strain
+stage sweep, a gated sweep, any set of points with known
+(strain, density) -- and `calibrate_lever_arms` fits the (m, 2)
+lever-arm matrix from those measurements by weighted least squares,
+with exact known-noise covariances when shift sigmas are supplied
+(the Gauss-Markov algebra of the multimode inversion, applied to the
+transposed problem), a per-mode chi-square consistency check, and an
+identifiability refusal when the reference states are collinear in
+the (strain, density) plane (a strain-only sweep cannot determine
+doping arms, and the fit says so instead of returning one of
+infinitely many minimizers). `CalibrationResult.coefficients()`
+packages a two-mode calibration as a `ModeCoefficients` -- with a
+mandatory provenance string -- and `result.K` feeds `MultiModeModel`
+directly for m > 2.
+
+```python
+import ramansep as rs
+# strain-stage points (density 0) plus gated points (strain 0)
+res = rs.calibrate_lever_arms(strain, density, shifts, sigmas=sig,
+                              mode_names=["A'1", "2LA(M)"])
+coeff = res.coefficients(reference="stage + gate calibration, 2026-09")
+model = rs.SeparationModel(coeff)
+```
+
+Anchors, asserted in the tests rather than stated: noise-free shifts
+from a known matrix are recovered to machine precision; the
+normal-equation path agrees with an independent QR solve to 1e-10; the
+orthogonal unit design has exactly the identity covariance; Monte-Carlo
+scatter matches the reported sigmas; and a calibrate-then-invert round
+trip through `SeparationModel` returns the input maps.
 
 ## More than two modes, with model checking (new in v0.5)
 
@@ -177,11 +213,18 @@ spectrum-to-inversion round trip.
   lam = 0 reproduces the per-pixel GLS maps and sigmas to machine
   precision, asserted in the tests) and a Voigt fitter (`fit_voigt`)
   for instrument-dominated lines
+- v0.7 (done): lever-arm calibration from the user's own reference
+  measurements (`calibrate_lever_arms`), closing the loop the
+  no-shipped-coefficients policy opens: the package now provides the
+  fit, with uncertainties, chi-square consistency and identifiability
+  refusals -- the user still provides the reference states and the
+  provenance
 
 The roadmap is complete. Deliberate scope, designed out rather than
 overlooked: no shipped coefficient values beyond the cited example
 sets (your material and mode pair need your calibration, with its
-citation); the smoothness weights `lam_strain` / `lam_density` are
+citation -- and v0.7's `calibrate_lever_arms` is the tool that turns
+your reference measurements into that calibration); the smoothness weights `lam_strain` / `lam_density` are
 user-chosen regularization, not estimated hyperparameters -- full
 hierarchical (evidence-maximizing) inference would need assumptions
 about the noise this package refuses to invent; and the spatial prior

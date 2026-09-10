@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.7.0 (2026-09-10)
+
+### Added
+
+- `calibrate_lever_arms` / `CalibrationResult`: fit the (m, 2)
+  lever-arm matrix from the user's own reference measurements (known
+  strain and density states, measured shifts) by weighted least
+  squares -- exact known-noise covariances when sigmas are given,
+  residual-variance estimates otherwise (refusing n < 3 in that
+  case), per-mode chi-square consistency check, and an
+  identifiability refusal for collinear reference states.
+  `CalibrationResult.coefficients()` packages a two-mode calibration
+  as a `ModeCoefficients` with a mandatory provenance string; `.K`
+  feeds `MultiModeModel` for m > 2.
+- Anchors: exact noise-free recovery; agreement with an independent
+  QR solve to 1e-10; identity covariance on the orthogonal unit
+  design; Monte-Carlo scatter matching reported sigmas;
+  calibrate-then-invert round trip through `SeparationModel`.
+
 ## 0.6.0 (2026-09-05)
 
 The v0.6 roadmap item -- joint Bayesian inversion with spatial priors
