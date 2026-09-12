@@ -16,14 +16,20 @@ from .fitting import (PeakFit, VoigtFit, fit_lorentzian, fit_two_modes,
 from .multimode import MultiModeModel, MultiModeResult, compare_mode_sets
 from .bayesian import BayesianMapResult, bayesian_map_inversion
 from .calibration import CalibrationResult, calibrate_lever_arms
+from .mapfit import MapFitResult, fit_map
+from .mapio import (load_map_csv, load_spectrum_csv, save_map_csv,
+                    save_spectrum_csv)
 from .materials import (ModeCoefficients, graphene_g_2d_lee2012,
                         mos2_a1_2la, mos2_eprime_a1, synthetic_demo)
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 __all__ = ["SeparationModel", "SeparationResult", "ModeCoefficients",
            "MultiModeModel", "MultiModeResult", "compare_mode_sets",
            "BayesianMapResult", "bayesian_map_inversion",
            "CalibrationResult", "calibrate_lever_arms",
+           "MapFitResult", "fit_map",
+           "load_spectrum_csv", "save_spectrum_csv",
+           "load_map_csv", "save_map_csv",
            "synthetic_demo", "mos2_a1_2la", "mos2_eprime_a1",
            "graphene_g_2d_lee2012",
            "PeakFit", "fit_lorentzian", "fit_two_modes", "lorentzian",

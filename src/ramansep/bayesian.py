@@ -95,6 +95,13 @@ def bayesian_map_inversion(K, shifts, sigmas, lam_strain, lam_density=None,
     shifts = np.asarray(shifts, dtype=float)
     if shifts.ndim != 3 or shifts.shape[0] != m:
         raise ValueError("shifts must be (m, H, W)")
+    if not np.all(np.isfinite(shifts)):
+        raise ValueError(
+            "shifts contain non-finite values; the smoothness prior "
+            "couples pixels, so masked pixels (e.g. from fit_map) "
+            "must be excluded or infilled deliberately before a joint "
+            "map inversion -- the per-pixel inversion propagates them "
+            "as NaN instead")
     sig = np.asarray(sigmas, dtype=float)
     if sig.shape != (m,) or np.any(sig <= 0.0):
         raise ValueError("sigmas must be m positive scalars")

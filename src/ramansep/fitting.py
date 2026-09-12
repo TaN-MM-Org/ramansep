@@ -53,6 +53,10 @@ class PeakFit:
     residual_rms : root-mean-square residual of the fit.
     n_iter : Levenberg-Marquardt iterations used.
     converged : True if the step and cost tolerances were met.
+    slope, slope_sigma : the fitted linear-baseline slope (counts per
+        x unit, about the window center) and its uncertainty, when
+        `baseline="linear"` was requested; 0 and NaN for the constant
+        baseline (new in v0.8).
     """
 
     center: float
@@ -66,6 +70,8 @@ class PeakFit:
     residual_rms: float
     n_iter: int
     converged: bool
+    slope: float = 0.0
+    slope_sigma: float = float("nan")
 
 
 def lorentzian(x, center, fwhm, amplitude, offset=0.0):
@@ -90,6 +96,24 @@ def _model_and_jacobian(x, p):
     return y, J
 
 
+def _model_and_jacobian_linear(x, p, x0):
+    """Lorentzian plus linear baseline b + m (x - x0); x0 is the fixed
+    window center, so the slope parameter stays well-conditioned."""
+    c, G, A, b, mslope = p
+    h = 0.5 * G
+    u = x - c
+    d = u * u + h * h
+    core = h * h / d
+    y = A * core + b + mslope * (x - x0)
+    J = np.empty((x.size, 5))
+    J[:, 0] = A * h * h * 2.0 * u / (d * d)      # d/dc
+    J[:, 1] = A * h * u * u / (d * d)            # d/dG
+    J[:, 2] = core                               # d/dA
+    J[:, 3] = 1.0                                # d/db
+    J[:, 4] = x - x0                             # d/dm
+    return y, J
+
+
 def _initial_guess(x, y):
     b0 = float(np.min(y))
     i = int(np.argmax(y))
@@ -106,14 +130,23 @@ def _initial_guess(x, y):
     return np.array([c0, G0, A0 if A0 > 0 else 1.0, b0])
 
 
-def fit_lorentzian(x, y, p0=None, max_iter=200, tol=1e-12) -> PeakFit:
+def fit_lorentzian(x, y, p0=None, max_iter=200, tol=1e-12,
+                   baseline="constant") -> PeakFit:
     """Fit one Lorentzian peak by Levenberg-Marquardt least squares.
 
-    x, y : 1D arrays of equal length >= 5 (four parameters plus one
-        degree of freedom for the noise estimate).
-    p0 : optional starting values (center, fwhm, amplitude, offset);
-        by default estimated from the data (peak position, half-maximum
-        crossing width, minimum as baseline).
+    x, y : 1D arrays of equal length >= 5 (constant baseline; the
+        linear baseline needs >= 6: parameters plus one degree of
+        freedom for the noise estimate).
+    p0 : optional starting values (center, fwhm, amplitude, offset)
+        for the constant baseline, or (center, fwhm, amplitude,
+        offset, slope) for the linear one; by default estimated from
+        the data.
+    baseline : "constant" (the historical model, unchanged) or
+        "linear" (new in v0.8): adds a slope term m (x - x_mid) to the
+        model, for spectra sitting on a sloped fluorescence
+        background. A sloped background under a constant-baseline fit
+        pulls the fitted center sideways -- the tests demonstrate the
+        bias and its recovery.
     tol : relative decrease of the cost at which iteration stops.
 
     Returns a `PeakFit`. `converged` is False if `max_iter` was hit
@@ -122,23 +155,43 @@ def fit_lorentzian(x, y, p0=None, max_iter=200, tol=1e-12) -> PeakFit:
     """
     x = np.asarray(x, dtype=float).ravel()
     y = np.asarray(y, dtype=float).ravel()
+    if baseline not in ("constant", "linear"):
+        raise ValueError('baseline must be "constant" or "linear"')
+    lin = baseline == "linear"
+    npar = 5 if lin else 4
     if x.size != y.size:
         raise ValueError("x and y must have the same length")
-    if x.size < 5:
-        raise ValueError("need at least 5 points to fit 4 parameters "
-                         "and estimate a residual variance")
+    if x.size < npar + 1:
+        raise ValueError(f"need at least {npar + 1} points to fit "
+                         f"{npar} parameters and estimate a residual "
+                         "variance")
     if not (np.all(np.isfinite(x)) and np.all(np.isfinite(y))):
         raise ValueError("x and y must be finite; clean or mask the "
                          "spectrum before fitting")
 
-    p = np.asarray(p0, dtype=float) if p0 is not None else _initial_guess(x, y)
-    if p.shape != (4,):
-        raise ValueError("p0 must be (center, fwhm, amplitude, offset)")
+    x0 = float(x.mean())
+    if p0 is not None:
+        p = np.asarray(p0, dtype=float)
+        if p.shape != (npar,):
+            raise ValueError(
+                "p0 must be (center, fwhm, amplitude, offset)"
+                + (" plus slope for the linear baseline" if lin else ""))
+    else:
+        p = _initial_guess(x, y)
+        if lin:
+            # remove the chord through the endpoints, re-guess the peak
+            m0 = (float(y[-1]) - float(y[0])) / (float(x[-1]) - float(x[0]))
+            p = np.concatenate([_initial_guess(x, y - m0 * (x - x0)),
+                                [m0]])
     if p[1] <= 0:
         raise ValueError("starting fwhm must be positive")
 
+    def mj(xv, pv):
+        return (_model_and_jacobian_linear(xv, pv, x0) if lin
+                else _model_and_jacobian(xv, pv))
+
     lam = 1e-3
-    yfit, J = _model_and_jacobian(x, p)
+    yfit, J = mj(x, p)
     r = y - yfit
     cost = float(r @ r)
     converged = False
@@ -153,7 +206,7 @@ def fit_lorentzian(x, y, p0=None, max_iter=200, tol=1e-12) -> PeakFit:
             continue
         p_new = p + step
         p_new[1] = abs(p_new[1])                 # width sign is a gauge
-        y_new, J_new = _model_and_jacobian(x, p_new)
+        y_new, J_new = mj(x, p_new)
         r_new = y - y_new
         cost_new = float(r_new @ r_new)
         if cost_new < cost:
@@ -169,14 +222,14 @@ def fit_lorentzian(x, y, p0=None, max_iter=200, tol=1e-12) -> PeakFit:
                 converged = True                 # stuck at a minimum
                 break
 
-    dof = x.size - 4
+    dof = x.size - npar
     s2 = cost / dof
     JTJ = J.T @ J
     try:
         cov = s2 * np.linalg.inv(JTJ)
         sig = np.sqrt(np.maximum(np.diag(cov), 0.0))
     except np.linalg.LinAlgError:                # pragma: no cover
-        sig = np.full(4, np.nan)
+        sig = np.full(npar, np.nan)
     return PeakFit(
         center=float(p[0]), fwhm=float(p[1]), amplitude=float(p[2]),
         offset=float(p[3]), center_sigma=float(sig[0]),
@@ -184,10 +237,13 @@ def fit_lorentzian(x, y, p0=None, max_iter=200, tol=1e-12) -> PeakFit:
         offset_sigma=float(sig[3]),
         residual_rms=float(np.sqrt(cost / x.size)),
         n_iter=it, converged=converged,
+        slope=float(p[4]) if lin else 0.0,
+        slope_sigma=float(sig[4]) if lin else float("nan"),
     )
 
 
-def fit_two_modes(x, y, window1, window2, ref1, ref2):
+def fit_two_modes(x, y, window1, window2, ref1, ref2,
+                  baseline="constant"):
     """Fit both modes of a spectrum and return inversion-ready shifts.
 
     x, y : the spectrum (wavenumber axis and counts).
@@ -196,6 +252,9 @@ def fit_two_modes(x, y, window1, window2, ref1, ref2):
         twice, once per fit.
     ref1, ref2 : pristine-material reference frequencies of the two
         modes (cm^-1), the zero points of the shifts.
+    baseline : "constant" or "linear", passed to `fit_lorentzian`
+        (new in v0.8; use "linear" for a sloped fluorescence
+        background).
 
     Returns (dw1, dw2, sigma1, sigma2, fit1, fit2): the two peak shifts
     relative to the references, their 1-sigma uncertainties, and the two
@@ -215,10 +274,11 @@ def fit_two_modes(x, y, window1, window2, ref1, ref2):
     fits = []
     for lo, hi in (w1, w2):
         m = (x >= lo) & (x <= hi)
-        if m.sum() < 5:
+        need = 6 if baseline == "linear" else 5
+        if m.sum() < need:
             raise ValueError(f"window ({lo}, {hi}) contains fewer than "
-                             "5 spectral points")
-        fits.append(fit_lorentzian(x[m], y[m]))
+                             f"{need} spectral points")
+        fits.append(fit_lorentzian(x[m], y[m], baseline=baseline))
     fit1, fit2 = fits
     return (fit1.center - float(ref1), fit2.center - float(ref2),
             fit1.center_sigma, fit2.center_sigma, fit1, fit2)
