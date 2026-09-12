@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.8.0 (2026-09-12)
+
+From-the-instrument release: the path from a measured hyperspectral
+map to the strain and charge maps is now covered end to end, with
+honest per-pixel failure reporting.
+
+### Added
+
+- `fit_map` / `MapFitResult`: the two-mode peak fit at every pixel of
+  an (H, W, L) cube, returning the four shift/uncertainty maps
+  `SeparationModel.invert` consumes. Honest masking instead of silent
+  garbage: non-finite counts, non-convergence, or a fitted center
+  escaping its window mask the pixel NaN and flag it in `ok`; masked
+  pixels propagate through the per-pixel inversion without touching
+  neighbors. Anchors: pixelwise equality with direct `fit_two_modes`
+  calls; a synthetic-cube round trip back to the generating strain
+  and density maps; a corrupted pixel masked while its neighbors are
+  bit-identical to the clean run.
+- `load_spectrum_csv` / `save_spectrum_csv` and `load_map_csv` /
+  `save_map_csv`: documented plain-text contracts
+  (`wavenumber_cm1,counts`; maps add 0-based `row,col` on a complete
+  grid with one shared, strictly increasing wavenumber axis), exact
+  round trips, and refusals with explanations for wrong headers,
+  grid holes, and per-pixel axes.
+- `baseline="linear"` on `fit_lorentzian` and `fit_two_modes`: a
+  linear-baseline term for spectra on a sloped fluorescence
+  background, with the analytic Jacobian extended. The tests
+  demonstrate the constant-baseline center bias on a sloped
+  background (beyond 3 sigma) and its recovery (to 1e-6) -- and that
+  the historical constant-baseline path is unchanged. `PeakFit`
+  gains `slope` / `slope_sigma`.
+
+### Changed
+
+- `bayesian_map_inversion` refuses non-finite shift maps with an
+  explanation (the smoothness prior couples pixels, so masked pixels
+  must be excluded or infilled deliberately), instead of solving
+  around them silently.
+- README rewritten: organized by workflow rather than by release
+  history, in plainer language, same facts.
+
 ## 0.7.0 (2026-09-10)
 
 ### Added
