@@ -88,7 +88,9 @@ def test_second_radiation_constant_against_scipy():
     from scipy.constants import physical_constants
     c2_m_K, unit, unc = physical_constants["second radiation constant"]
     assert unit == "m K" and unc == 0.0          # exact in the 2019 SI
-    assert abs(HC_OVER_KB_CM_K - 100.0 * c2_m_K) < 1e-12
+    # older SciPy tables store the exact value truncated to fewer
+    # digits, so agree to the table's own precision, not beyond it
+    assert abs(HC_OVER_KB_CM_K - 100.0 * c2_m_K) < 1e-9 * HC_OVER_KB_CM_K
 
 
 def test_anti_stokes_round_trip_and_calibration():
