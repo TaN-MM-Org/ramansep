@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.9.0 (2026-09-13)
+
+Physics upgrade: temperature as a third separable cause, and as a
+direct Bose-factor measurement.
+
+### Added
+
+- `ThreeCauseModel` / `ThreeCauseResult`: the weighted-least-squares
+  separation extended to strain, carrier density AND temperature,
+  from m >= 3 modes and your calibrated temperature coefficients
+  d(omega)/dT (cited, user-supplied -- material-, mode-, thickness-
+  and substrate-specific, so none are shipped; for monolayer MoS2
+  see e.g. Sahoo et al., J. Phys. Chem. C 117, 9042 (2013)). Full
+  per-pixel 3x3 covariance, chi-square map against dof = m - 3, and
+  a rank-3 identifiability refusal. Anchors: machine-precision
+  noise-free round trip; per-pixel agreement with an independent
+  whitened `lstsq` path; covariance equal to the direct textbook
+  inverse; exact consistency with the existing two-cause solver when
+  a known temperature's shift is subtracted first.
+- `temperature_from_anti_stokes` / `anti_stokes_ratio` /
+  `calibrate_anti_stokes`: the anti-Stokes/Stokes Raman thermometer,
+  I_AS/I_S = C exp(-hbar omega / kB T), with the prefactor C
+  calibrated at one known temperature rather than assumed 1 (the
+  standard-practice correction for cross-section and spectrometer
+  response), exact closed-form inversion, optional exact error
+  propagation, and a refusal when ratio >= C (no finite positive
+  temperature exists; the calibration or background is wrong).
+  Anchors: machine-precision round trip; the second radiation
+  constant hc/kB computed from the exact SI defining constants and
+  asserted against SciPy's CODATA table (two independent sources);
+  analytic error propagation against a central finite difference;
+  monotonicity; refusal tests.
+
 ## 0.8.0 (2026-09-12)
 
 From-the-instrument release: the path from a measured hyperspectral

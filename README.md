@@ -74,6 +74,22 @@ smoothing never increases the reported uncertainty (both asserted in
 the tests). It refuses NaN pixels rather than solving around them
 silently -- exclude or infill masked pixels deliberately first.
 
+## Temperature, measured and separated
+
+Laser heating shifts Raman peaks too, and a two-cause analysis books
+that shift as strain or charge. New in v0.9, two independent tools
+close this gap. `ThreeCauseModel` extends the inversion to strain,
+charge and temperature at once, using your calibrated temperature
+coefficients (cm^-1 per kelvin, with their source -- none are
+shipped); it needs at least three modes and keeps the same
+uncertainty, chi-square and identifiability machinery.
+`temperature_from_anti_stokes` measures temperature directly from the
+anti-Stokes/Stokes intensity ratio through the Bose-Einstein
+occupation factor, with a calibration constant you measure once at a
+known temperature (`calibrate_anti_stokes`) instead of the biased
+textbook assumption of 1. Measuring T one way and separating it the
+other way is exactly the cross-check a heated-spot experiment wants.
+
 ## Calibrate your own numbers
 
 `calibrate_lever_arms` fits the response matrix from reference states
@@ -129,7 +145,7 @@ assumptions this package refuses to invent.
 
 ## How it is checked
 
-56 tests (Python 3.9-3.13, run in CI on every push), each pinned to
+62 tests (Python 3.9-3.13, run in CI on every push), each pinned to
 an exact result: noise-free recovery to machine precision throughout;
 analytic Jacobians against finite differences; the Voigt profile's
 exact Gaussian and Lorentzian limits; reported uncertainties checked
