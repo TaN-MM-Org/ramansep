@@ -83,11 +83,12 @@ charge and temperature at once, using your calibrated temperature
 coefficients (cm^-1 per kelvin, with their source -- none are
 shipped); it needs at least three modes and keeps the same
 uncertainty, chi-square and identifiability machinery.
-`temperature_from_anti_stokes` measures temperature directly from the
-anti-Stokes/Stokes intensity ratio through the Bose-Einstein
-occupation factor, with a calibration constant you measure once at a
-known temperature (`calibrate_anti_stokes`) instead of the biased
-textbook assumption of 1. Measuring T one way and separating it the
+`temperature_from_anti_stokes` measures temperature directly from
+the ratio of the anti-Stokes and Stokes peak intensities -- a ratio
+set by how many phonons are thermally excited, so it is a built-in
+thermometer -- with a calibration constant you measure once at a
+known temperature (`calibrate_anti_stokes`) instead of the textbook
+assumption of 1, which biases the answer on any real spectrometer. Measuring T one way and separating it the
 other way is exactly the cross-check a heated-spot experiment wants.
 
 ## Calibrate your own numbers
@@ -152,7 +153,11 @@ exact Gaussian and Lorentzian limits; reported uncertainties checked
 against actual scatter on seeded noise; the multimode estimator
 reducing exactly to the 2x2 core; the Bayesian solver reproducing the
 per-pixel result at zero smoothing; calibration cross-checked against
-an independent QR solve; exact file-contract round trips; and full
+an independent QR solve; the three-cause inversion against an
+independent per-pixel least-squares path, and its exact agreement
+with the two-cause solver at a known temperature; the anti-Stokes
+thermometer's exact round trip, with its physical constant checked
+against SciPy's own table; exact file-contract round trips; and full
 pipeline round trips from synthetic spectra back to the generating
 strain and charge maps.
 
