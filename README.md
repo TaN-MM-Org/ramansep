@@ -107,6 +107,35 @@ model = rs.SeparationModel(
     res.coefficients(reference="stage + gate calibration, 2026-09"))
 ```
 
+## Plan the calibration before measuring it
+
+Because the calibration model is linear, the error bars
+`calibrate_lever_arms` will report depend only on the reference
+design -- which (strain, density) states you prepare and how well
+your peak fitter resolves shifts -- so they can be computed exactly
+before any spectrum is taken:
+
+```python
+from ramansep import plan_calibration, design_references, repeats_for_sigma
+
+# How good would this reference set be, at 0.15 cm^-1 per shift?
+plan = plan_calibration(strain=[0.0, 0.3, 0.6, 0.0],
+                        density=[0.0, 0.0, 0.1, 0.8], sigmas=0.15)
+print(plan["K_sigma"])              # (strain arm, density arm) error bars
+
+# Which of the states my stage and gate can reach are worth preparing?
+pick = design_references(strain_cand, density_cand, n_pick=5, sigmas=0.15)
+
+# How many repeats to get every lever arm below 0.5 cm^-1 per unit?
+r, plan_r = repeats_for_sigma(0.5, strain, density, sigmas=0.15)
+```
+
+A collinear candidate set -- a strain-only sweep, say -- is refused
+with the same explanation the calibration itself gives, because no
+subset of a line can identify two lever arms; and repeating a design
+r times shrinks its covariance by exactly 1/r, so the repeat count is
+a closed form, not a search.
+
 ## Cited example sets
 
 Three sets ship with full provenance; the tests reproduce the source
@@ -146,7 +175,7 @@ assumptions this package refuses to invent.
 
 ## How it is checked
 
-62 tests (Python 3.9-3.13, run in CI on every push), each pinned to
+68 tests (Python 3.9-3.13, run in CI on every push), each pinned to
 an exact result: noise-free recovery to machine precision throughout;
 analytic Jacobians against finite differences; the Voigt profile's
 exact Gaussian and Lorentzian limits; reported uncertainties checked

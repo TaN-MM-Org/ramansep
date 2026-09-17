@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.10.0 (2026-09-17)
+
+Lab adaptability: the calibration planned before it is measured.
+
+- `lab.plan_calibration`: the exact covariance `calibrate_lever_arms`
+  will report, computed from the reference design alone -- the model
+  is linear, so this is the same (X^T W X)^-1 matrix, not an
+  approximation. Collinear designs are reported non-identifiable by
+  the same rank argument on which the calibration refuses.
+- `lab.design_references`: greedy D-optimal choice of which reachable
+  (strain, density) states to prepare (Pukelsheim, Optimal Design of
+  Experiments, SIAM (2006)).
+- `lab.repeats_for_sigma`: the repeat count for a target lever-arm
+  uncertainty, in closed form -- r copies of a design scale its
+  covariance by exactly 1/r.
+- Anchors: planned covariance equals the calibration's to machine
+  precision; the orthogonal unit design's exact identity covariance
+  is predicted in advance; the 1/r scaling asserted by tiling the
+  design; the greedy design contains the off-line point any
+  identifiable subset needs and never loses to a random subset;
+  collinear refusals mirrored across all three tools.
+
 ## 0.9.0 (2026-09-13)
 
 Physics upgrade: temperature as a third separable cause, and as a
