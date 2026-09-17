@@ -17,6 +17,8 @@ from .multimode import MultiModeModel, MultiModeResult, compare_mode_sets
 from .bayesian import BayesianMapResult, bayesian_map_inversion
 from .calibration import CalibrationResult, calibrate_lever_arms
 from .mapfit import MapFitResult, fit_map
+from .lab import (design_references, plan_calibration,
+                  repeats_for_sigma)
 from .mapio import (load_map_csv, load_spectrum_csv, save_map_csv,
                     save_spectrum_csv)
 from .materials import (ModeCoefficients, graphene_g_2d_lee2012,
@@ -25,7 +27,7 @@ from .thermal import (HC_OVER_KB_CM_K, ThreeCauseModel, ThreeCauseResult,
                       anti_stokes_ratio, calibrate_anti_stokes,
                       temperature_from_anti_stokes)
 
-__version__ = "0.9.0"
+__version__ = "0.10.0"
 __all__ = ["SeparationModel", "SeparationResult", "ModeCoefficients",
            "MultiModeModel", "MultiModeResult", "compare_mode_sets",
            "ThreeCauseModel", "ThreeCauseResult", "HC_OVER_KB_CM_K",
@@ -39,4 +41,6 @@ __all__ = ["SeparationModel", "SeparationResult", "ModeCoefficients",
            "synthetic_demo", "mos2_a1_2la", "mos2_eprime_a1",
            "graphene_g_2d_lee2012",
            "PeakFit", "fit_lorentzian", "fit_two_modes", "lorentzian",
-           "VoigtFit", "fit_voigt", "voigt"]
+           "VoigtFit", "fit_voigt", "voigt",
+           "plan_calibration", "design_references",
+           "repeats_for_sigma"]
