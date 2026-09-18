@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.11.0 (2026-09-18)
+
+The calibration's own uncertainty carried into the maps, and a
+future-proofing pass.
+
+- `propagate.separation_with_calibration`: two-mode inversion that
+  also propagates the lever-arm calibration covariance into the
+  strain and density error bars, reporting the shift-noise and
+  calibration contributions separately. Built on the exact
+  derivative identity dx/dK_mj = -K^-1 E_mj x of the two-mode
+  inverse; the multimode case is deliberately not half-shipped.
+- README documents the verified 2024-2026 sources for W-based
+  materials (WSe2/WS2 strain and temperature responses) and states
+  plainly why no W-material doping arm ships as a constant: the
+  measured doping behavior has no clean linear coefficient yet, and
+  this package does not ship half a lever-arm matrix.
+- CI now also runs on Python 3.14.
+- Anchors: zero calibration covariance reduces exactly to the plain
+  inversion; the derivative identity checked against finite
+  differences of the actual re-solve; 400 seeded Monte-Carlo lever-
+  arm draws match the reported calibration part; the quadrature
+  split exact; multimode calibrations refused by the two-mode tool.
+
 ## 0.10.0 (2026-09-17)
 
 Lab adaptability: the calibration planned before it is measured.

@@ -136,6 +136,49 @@ subset of a line can identify two lever arms; and repeating a design
 r times shrinks its covariance by exactly 1/r, so the repeat count is
 a closed form, not a search.
 
+## The calibration's own uncertainty, in the maps
+
+A calibrated lever-arm matrix carries error bars of its own, and
+until now every inversion treated it as exact.
+`separation_with_calibration` closes that gap for the two-mode case:
+it inverts the shift maps AND propagates the calibration covariance
+into the strain and density error bars, reporting the two
+contributions separately -- so you can see whether your budget is
+limited by the spectra or by the calibration, and spend effort where
+it matters:
+
+```python
+from ramansep import calibrate_lever_arms, separation_with_calibration
+
+cal = calibrate_lever_arms(strain_refs, density_refs, ref_shifts,
+                           sigmas=0.1)
+out = separation_with_calibration(cal, dw1_map, dw2_map,
+                                  sigma1=0.1, sigma2=0.1)
+print(out["strain_sigma_shifts"], out["strain_sigma_calibration"])
+```
+
+The propagation rests on an exact derivative identity of the
+two-mode inverse, checked against finite differences of the actual
+re-solve; the overdetermined multimode case couples the mode weights
+and is deliberately not half-shipped.
+
+## Where to calibrate tungsten-based materials from (2024-2026)
+
+For W-based monolayers the literature now provides verified strain
+and temperature responses -- monolayer WSe2 biaxial strain rates
+(Michail et al., ACS Appl. Mater. Interfaces 16, 49602 (2024)),
+monolayer WS2 strain rates (Roy, Yang and Gao, Sci. Rep. 14, 3860
+(2024)) and temperature coefficients (Huang et al., Sci. Rep. 6,
+32236 (2016)) -- while gate-calibrated doping arms remain without a
+clean linear coefficient (the measured behavior is an electron-only,
+threshold-like softening of the out-of-plane modes; Sohier et al.,
+PRX 9, 031019 (2019)). That is why no W-material set ships as
+constants here: the strain column is citable, the doping column is
+not yet, and this package does not ship half a lever-arm matrix.
+Calibrate your own with `calibrate_lever_arms` -- the doping arm
+from your own gated reference points -- and the provenance travels
+with the analysis.
+
 ## Cited example sets
 
 Three sets ship with full provenance; the tests reproduce the source
@@ -175,7 +218,7 @@ assumptions this package refuses to invent.
 
 ## How it is checked
 
-68 tests (Python 3.9-3.13, run in CI on every push), each pinned to
+73 tests (Python 3.9-3.14, run in CI on every push), each pinned to
 an exact result: noise-free recovery to machine precision throughout;
 analytic Jacobians against finite differences; the Voigt profile's
 exact Gaussian and Lorentzian limits; reported uncertainties checked
