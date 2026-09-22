@@ -1,5 +1,77 @@
 # Changelog
 
+## 0.11.1 (2026-09-22)
+
+Two silent failures fixed, the README rewritten, and CI extended.
+
+### Fixed
+
+- `fit_map` caught every per-pixel `ValueError`, so a mistake in its
+  own settings -- an unknown `baseline` name (e.g. `"Linear"`),
+  reversed or overlapping windows, or a window with too few points --
+  masked every pixel and returned an all-NaN result with no error.
+  These settings are now checked once, before any pixel is fitted,
+  with the same messages as `fit_two_modes` (the checks now live in
+  one shared helper used by both). Valid settings give unchanged
+  results.
+- `fit_map` now also refuses a wavenumber axis containing NaN or
+  infinity. Before, spectral points with a NaN wavenumber were
+  silently left out of every pixel's fit (the fit itself still ran).
+  `fit_two_modes` on its own is unchanged in this respect.
+- `bayesian_map_inversion` did not check the rank of the lever-arm
+  matrix. A rank-deficient `K` makes its sparse system singular: it
+  returned NaN maps at `lam = 0` (with a SciPy warning) and arbitrary
+  finite maps at `lam > 0` (no warning). It now refuses, with the same
+  message as `MultiModeModel`, and also refuses a non-finite `K`.
+
+### Tests
+
+- New `tests/test_refusals_v0111.py` (4 tests): the `fit_map`
+  refusals, pixelwise equality with `fit_two_modes` for valid
+  settings, and the rank refusal of `bayesian_map_inversion`. Three of
+  them fail on 0.11.0. Test count: 73 -> 77.
+- The full suite passes with the oldest allowed dependencies
+  (NumPy 1.22.0, SciPy 1.8.0) on Python 3.9 and 3.10.
+
+### Changed
+
+- CI: Python 3.10 added to the matrix (it now covers 3.9 to 3.14), and
+  a new `oldest-dependencies` job runs the suite on Python 3.9 with
+  NumPy 1.22.0 and SciPy 1.8.0.
+- README rewritten for readers outside the field: a guide to the words
+  used, eleven examples each with its real printed output, a list of
+  every exported name, the refusals, and the actual tolerance of each
+  test check.
+- `calibration` module docstring: "QR solve" corrected (see below).
+- `bayesian` docstrings referred to a `MultiModeSeparation` class that
+  does not exist; they now name `MultiModeModel`.
+- CONTRIBUTING.md: dependencies are NumPy and SciPy (it said NumPy
+  only).
+
+### Corrections to earlier notes
+
+- The 0.11.0 README said the tests run on Python 3.9-3.14; the CI
+  matrix did not include 3.10 (the 0.6.0 note lists the matrix
+  correctly). It also described every test as "pinned to an exact
+  result" at "machine precision", and said the tests reproduce the
+  published separations of all three cited sets; many checks use
+  stated tolerances (1e-8 to 1e-12 for the noise-free inversion round
+  trips, 1e-4 and 1e-3 for the noiseless map-fit round trip, 5e-3 for
+  the two-peak spectrum round trip, wider for statistical checks), and
+  only `mos2_a1_2la` is checked against published separations.
+- The 0.7.0 note (and, until now, the `calibration` module
+  docstring) call the cross-check "an independent QR solve"; the test
+  uses `numpy.linalg.lstsq` on the whitened system, which is not a QR
+  solve. The docstring now says so.
+- The 0.11.0 README attributed the E' + A'1 pair itself to Michail
+  et al., ACS Appl. Mater. Interfaces 16, 49602 (2024). As the
+  `mos2_eprime_a1` docstring states, that paper supplies the biaxial
+  Grueneisen parameters; the pair's historical use is cited to
+  Michail et al., Appl. Phys. Lett. 108, 173102 (2016). The README
+  now attributes each number as the docstring does.
+- The 0.9.0 "machine-precision noise-free round trip" of
+  `ThreeCauseModel` is asserted to 1e-9 (1e-8 for temperature).
+
 ## 0.11.0 (2026-09-18)
 
 The calibration's own uncertainty carried into the maps, and a
