@@ -42,8 +42,8 @@ strain arms only; add at least one reference that moves off that line
 Exact facts the test suite asserts, rather than states: noise-free
 shifts generated from a known matrix are recovered to machine
 precision; the hand-built normal-equation solution agrees with an
-independent QR solve (`numpy.linalg.lstsq` on the whitened system) to
-1e-10; on the orthogonal unit design {(1,0), (0,1)} with unit sigmas
+independent least-squares solve (`numpy.linalg.lstsq` on the whitened
+system) to 1e-10; on the orthogonal unit design {(1,0), (0,1)} with unit sigmas
 the parameter covariance is exactly the identity; a seeded Monte-Carlo
 run finds the empirical scatter of the fitted arms compatible with the
 reported sigmas; degenerate reference sets raise; and a full round trip

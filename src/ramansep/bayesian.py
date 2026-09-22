@@ -20,7 +20,7 @@ Because everything is linear-Gaussian, the estimator's behavior is
 provable and the tests assert it rather than trust it:
 
 * lam = 0 reproduces the per-pixel GLS maps AND their per-pixel
-  sigmas of `MultiModeSeparation.invert` to machine precision;
+  sigmas of `MultiModeModel.invert` to machine precision;
 * a spatially constant truth measured without noise is recovered
   exactly at every lam (the prior costs nothing on the truth);
 * lam -> infinity drives the solution to the spatially constant
@@ -77,7 +77,8 @@ def bayesian_map_inversion(K, shifts, sigmas, lam_strain, lam_density=None,
                            posterior_sigma=False, max_dense=4096):
     """Joint MAP inversion of shift maps with spatial smoothness priors.
 
-    K : (m, 2) lever-arm matrix (as in `MultiModeSeparation`).
+    K : (m, 2) lever-arm matrix of rank 2 (as in `MultiModeModel`);
+        a rank-deficient K is refused, as `MultiModeModel` refuses it.
     shifts : (m, H, W) measured shift maps.
     sigmas : (m,) per-mode shift uncertainties (scalars across the map).
     lam_strain, lam_density : smoothness weights (>= 0); lam_density
@@ -91,6 +92,11 @@ def bayesian_map_inversion(K, shifts, sigmas, lam_strain, lam_density=None,
     K = np.asarray(K, dtype=float)
     if K.ndim != 2 or K.shape[1] != 2:
         raise ValueError("K must be (m, 2)")
+    if not np.all(np.isfinite(K)):
+        raise ValueError("K must be finite")
+    if np.linalg.matrix_rank(K) < 2:
+        raise ValueError("lever-arm matrix has rank < 2: the modes "
+                         "cannot separate strain from density")
     m = K.shape[0]
     shifts = np.asarray(shifts, dtype=float)
     if shifts.ndim != 3 or shifts.shape[0] != m:

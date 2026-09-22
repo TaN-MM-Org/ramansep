@@ -32,7 +32,7 @@ import dataclasses
 
 import numpy as np
 
-from .fitting import fit_two_modes
+from .fitting import _check_two_mode_setup, fit_two_modes
 
 __all__ = ["MapFitResult", "fit_map"]
 
@@ -69,12 +69,24 @@ def fit_map(wavenumber, cube, window1, window2, ref1, ref2,
 
     Returns a `MapFitResult`; feed `.dw1, .dw2, .sigma1, .sigma2`
     straight into `SeparationModel.invert`.
+
+    Raises ValueError, before any pixel is fitted, for a cube whose
+    shape does not match the axis, a non-finite axis, or a fit
+    configuration that `fit_two_modes` refuses (baseline name,
+    reversed or overlapping windows, fewer than 5 points -- 6 for
+    the linear baseline -- in a window).
     """
     x = np.asarray(wavenumber, dtype=float).ravel()
     c = np.asarray(cube, dtype=float)
     if c.ndim != 3 or c.shape[2] != x.size:
         raise ValueError("cube must be (H, W, L) with L matching the "
                          "wavenumber axis")
+    if not np.all(np.isfinite(x)):
+        raise ValueError("the wavenumber axis must be finite")
+    # configuration errors (bad baseline name, reversed or overlapping
+    # windows, too few points in a window) are the caller's, not the
+    # pixels': refuse them once here instead of masking every pixel
+    _check_two_mode_setup(x, window1, window2, baseline)
     H, W = c.shape[:2]
     dw1 = np.full((H, W), np.nan)
     dw2 = np.full((H, W), np.nan)

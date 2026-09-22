@@ -242,6 +242,31 @@ def fit_lorentzian(x, y, p0=None, max_iter=200, tol=1e-12,
     )
 
 
+def _check_two_mode_setup(x, window1, window2, baseline):
+    """Validate the fit configuration shared by every spectrum on the
+    axis x: baseline name, window order, window overlap, and enough
+    points per window. Returns the two windows as float tuples.
+    Used by `fit_two_modes` and, once per map, by `fit_map`, so that
+    a configuration error is refused instead of masking every pixel."""
+    if baseline not in ("constant", "linear"):
+        raise ValueError('baseline must be "constant" or "linear"')
+    w1 = tuple(float(v) for v in window1)
+    w2 = tuple(float(v) for v in window2)
+    for w in (w1, w2):
+        if w[0] >= w[1]:
+            raise ValueError(f"window {w} must be (lo, hi) with lo < hi")
+    if min(w1[1], w2[1]) > max(w1[0], w2[0]):
+        raise ValueError("the two windows overlap; each mode must be "
+                         "fitted on its own spectral range")
+    need = 6 if baseline == "linear" else 5
+    for lo, hi in (w1, w2):
+        m = (x >= lo) & (x <= hi)
+        if m.sum() < need:
+            raise ValueError(f"window ({lo}, {hi}) contains fewer than "
+                             f"{need} spectral points")
+    return w1, w2
+
+
 def fit_two_modes(x, y, window1, window2, ref1, ref2,
                   baseline="constant"):
     """Fit both modes of a spectrum and return inversion-ready shifts.
@@ -263,21 +288,10 @@ def fit_two_modes(x, y, window1, window2, ref1, ref2,
     """
     x = np.asarray(x, dtype=float).ravel()
     y = np.asarray(y, dtype=float).ravel()
-    w1 = tuple(float(v) for v in window1)
-    w2 = tuple(float(v) for v in window2)
-    for w in (w1, w2):
-        if w[0] >= w[1]:
-            raise ValueError(f"window {w} must be (lo, hi) with lo < hi")
-    if min(w1[1], w2[1]) > max(w1[0], w2[0]):
-        raise ValueError("the two windows overlap; each mode must be "
-                         "fitted on its own spectral range")
+    w1, w2 = _check_two_mode_setup(x, window1, window2, baseline)
     fits = []
     for lo, hi in (w1, w2):
         m = (x >= lo) & (x <= hi)
-        need = 6 if baseline == "linear" else 5
-        if m.sum() < need:
-            raise ValueError(f"window ({lo}, {hi}) contains fewer than "
-                             f"{need} spectral points")
         fits.append(fit_lorentzian(x[m], y[m], baseline=baseline))
     fit1, fit2 = fits
     return (fit1.center - float(ref1), fit2.center - float(ref2),

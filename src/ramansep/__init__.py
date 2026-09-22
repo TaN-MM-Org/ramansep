@@ -28,7 +28,7 @@ from .thermal import (HC_OVER_KB_CM_K, ThreeCauseModel, ThreeCauseResult,
                       anti_stokes_ratio, calibrate_anti_stokes,
                       temperature_from_anti_stokes)
 
-__version__ = "0.11.0"
+__version__ = "0.11.1"
 __all__ = ["SeparationModel", "SeparationResult", "ModeCoefficients",
            "MultiModeModel", "MultiModeResult", "compare_mode_sets",
            "ThreeCauseModel", "ThreeCauseResult", "HC_OVER_KB_CM_K",
