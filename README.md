@@ -16,15 +16,17 @@ strain map and a charge-density map, each with an error bar. It also
 covers the steps around that:
 
 - How do I get the peak shifts out of my measured spectra, and which
-  pixels failed?
+  pixels failed or carry no peak at all?
+- What if two peaks overlap?
 - Which pair of peaks separates the two causes best?
 - With three or more peaks, does "strain plus charge" actually explain
   what I measured, pixel by pixel?
 - Can I trade some resolution for smaller error bars if the fields are
-  smooth?
+  smooth, and fill the pixels whose fits failed?
 - How do I measure the response numbers on my own instrument, and how
   should I plan that measurement?
-- How much of my final error bar comes from that calibration?
+- How much of my final error bar comes from that calibration, with two
+  peaks or more?
 - What if laser heating also shifts the peaks?
 
 The results are checked by automated tests against independent
@@ -97,6 +99,8 @@ that says why, rather than returning a number that looks fine.
 - **Lorentzian / Voigt** -- peak shapes. A Lorentzian is the natural
   shape of a phonon peak; a Voigt is a Lorentzian blurred by a
   Gaussian, for peaks broadened by the instrument.
+- **FWHM** -- full width at half maximum, the width of a peak measured
+  halfway up its height.
 - **Baseline** -- the background under a peak. A sloped background
   (for example from fluorescence) pulls a fitted peak centre sideways
   unless the slope is fitted too.
@@ -139,7 +143,7 @@ Units and signs:
 ## Examples
 
 Each example below runs as written, and the output shown is what it
-printed with ramansep 0.11.1. Unless a value is said to come from a
+printed with ramansep 0.12.0. Unless a value is said to come from a
 cited source, it is an illustrative value chosen for the example. The
 repository also has a longer demo, `examples/synthetic_map.py`, that
 inverts a noisy synthetic 128 x 128 map and plots it with matplotlib.
@@ -266,13 +270,18 @@ The map file is plain CSV with the header `row,col,wavenumber_cm1,counts`
 uses `wavenumber_cm1,counts` (`save_spectrum_csv`, `load_spectrum_csv`).
 `fit_map` fits both peaks at every pixel. A pixel is masked (NaN in all
 four output maps, `False` in `fits.ok`) when its counts are not finite,
-a fit stops with an error or does not converge, or a fitted centre ends
-up outside its window. Mistakes in the settings themselves (window
-limits, `baseline` name, a wavenumber axis containing NaN) are refused
-with an error before any pixel is fitted.
+a fit stops with an error or does not converge, a fitted centre ends
+up outside its window, or a fitted peak height is zero or negative (a
+dip is not a Raman peak; this check is new in 0.12.0). `fits.reason`
+records, per pixel, why it was masked (`rs.MASK_REASONS` spells out
+the codes). Maps with pixels that carry no peak at all need one more
+check, `min_snr` (example 12). Mistakes in the settings themselves
+(window limits, `baseline` name, a wavenumber axis containing NaN) are
+refused with an error before any pixel is fitted.
 The per-pixel inversion keeps masked pixels as NaN and does not touch
 their neighbours. For spectra on a sloped background, pass
-`baseline="linear"`.
+`baseline="linear"`; for peaks close enough to overlap, pass
+`joint=True` (example 13).
 
 ### 4. Three peaks, and a check that the model holds
 
@@ -370,11 +379,12 @@ it gives the same answer as the pixel-by-pixel inversion, and a larger
 `lam` never increases the error bars. Smoothing helps only when the
 real fields are smooth, as they are here by construction; you choose
 `lam`, and the package does not estimate it for you. Masked (NaN)
-pixels are refused because the prior links every pixel to its
-neighbours; remove or fill them deliberately first. Exact per-pixel
-error bars (`posterior_sigma=True`) need a dense matrix inverse and are
-refused above `max_dense` = 4096 unknowns (two per pixel) unless you
-raise that limit.
+pixels are refused by default because the prior links every pixel to
+its neighbours; `fill_masked=True` fills them from their neighbours
+instead, and `sigmas` may be given per pixel (example 14). Exact
+per-pixel error bars (`posterior_sigma=True`) need a dense matrix
+inverse and are refused above `max_dense` = 4096 unknowns (two per
+pixel) unless you raise that limit.
 
 ### 6. Measuring the lever arms on your own instrument
 
@@ -517,8 +527,12 @@ uncertainty into the result, and reports the two parts separately; the
 total is their quadrature sum (square root of the sum of squares). It
 uses the first-order (linearised) error propagation, based on the
 identity dx/dK_mj = -K^-1 E_mj x for the two-mode solution x = K^-1 y
-(E_mj is the matrix with a single 1 at row m, column j). It works for
-two-mode calibrations only; a calibration with more modes is refused.
+(E_mj is the matrix with a single 1 at row m, column j). It takes
+two-mode calibrations only; for three or more modes use
+`multimode_with_calibration` (example 15). The calibration part comes
+from one set of lever arms shared by every pixel, so it is an error
+common to the whole map: unlike the spectral noise, it does not shrink
+when you average many pixels.
 
 ### 9. Temperature from the anti-Stokes / Stokes ratio
 
@@ -596,7 +610,8 @@ Because shifts are measured from the reference frequencies, the
 "temperature" it returns is the change from the temperature at which
 those references hold. With four or more modes it also returns the
 chi-square check (`chi2_map`, `p_value`) and the full 3 x 3 covariance
-per pixel. Measuring the temperature with example 9 and comparing it
+per pixel. A pixel with a NaN shift or error bar (a pixel masked by
+`fit_map`) comes out as NaN without affecting the others. Measuring the temperature with example 9 and comparing it
 with this estimate is a direct cross-check.
 
 ### 11. Graphene: the G + 2D decomposition
@@ -630,6 +645,189 @@ advises `condition_warn=100`. The noise amplification is moderate: a
 1.6 cm^-1 of doping coordinate (asserted in the tests). The "density"
 here is a G-band shift, not a carrier density; see below.
 
+### 12. Pixels with no peak at all
+
+```python
+import warnings
+import numpy as np
+import ramansep as rs
+from ramansep import lorentzian
+
+# An illustrative 2 x 20 map: row 0 is off the flake (background and
+# noise only, no Raman peak), row 1 carries both MoS2 peaks.
+x = np.linspace(380.0, 480.0, 401)
+rng = np.random.default_rng(6)
+cube = np.empty((2, 20, x.size))
+cube[0] = 50.0 + rng.normal(0.0, 3.0, (20, x.size))
+cube[1] = (lorentzian(x, 404.7, 3.0, 40.0, 50.0) + lorentzian(x, 452.0, 4.0, 25.0, 0.0)
+           + rng.normal(0.0, 3.0, (20, x.size)))
+
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", RuntimeWarning)   # overflow in runaway noise fits
+    plain = rs.fit_map(x, cube, (395, 415), (440, 465), 404.7, 452.0)
+    checked = rs.fit_map(x, cube, (395, 415), (440, 465), 404.7, 452.0, min_snr=3.0)
+
+for name, f in (("without min_snr", plain), ("with min_snr=3 ", checked)):
+    print(f"{name}: kept off-flake {f.ok[0].sum()} of 20, on-flake {f.ok[1].sum()} of 20")
+for j in np.flatnonzero(plain.ok[0]):
+    print(f"  off-flake pixel {j:2d} kept without min_snr: "
+          f"dw1 {plain.dw1[0, j]:+.2f} +/- {plain.sigma1[0, j]:.2f} cm^-1")
+for code in np.unique(checked.reason[0]):
+    print(f"  off-flake reason {code}: {(checked.reason[0] == code).sum():2d} x {rs.MASK_REASONS[code]}")
+```
+
+```
+without min_snr: kept off-flake 3 of 20, on-flake 20 of 20
+with min_snr=3 : kept off-flake 0 of 20, on-flake 20 of 20
+  off-flake pixel 11 kept without min_snr: dw1 +9.92 +/- 0.05 cm^-1
+  off-flake pixel 15 kept without min_snr: dw1 -7.72 +/- 0.11 cm^-1
+  off-flake pixel 17 kept without min_snr: dw1 -0.32 +/- 1.14 cm^-1
+  off-flake reason 3: 13 x fit did not converge
+  off-flake reason 4:  1 x fitted centre outside its window
+  off-flake reason 5:  3 x fitted peak height not positive (a dip or no peak)
+  off-flake reason 6:  3 x peak height below min_snr times its error bar
+```
+
+A fit to a spectrum that holds no peak (off the flake, over a hole)
+sometimes converges on a noise spike and returns a shift that looks
+like a measurement: pixel 11 above reports +9.92 +/- 0.05 cm^-1 from
+pure noise. `min_snr=3` masks a pixel unless each fitted peak height is
+at least 3 times its own error bar (a signal-to-noise test), and
+removes all such pixels here while keeping every real one; the right
+threshold for your data is your choice. `fwhm_range=(lo, hi)` adds a
+check on the fitted widths. Both are off by default. Before 0.12.0,
+peaks with a negative fitted height were kept too: on this map 6
+off-flake pixels were kept instead of 3.
+
+### 13. Two peaks that overlap
+
+```python
+import numpy as np
+import ramansep as rs
+from ramansep import lorentzian
+
+# Two broad, overlapping peaks at known positions 385 and 404 cm^-1
+# (illustrative widths), no noise: both shifts should come out as zero.
+x = np.linspace(360.0, 430.0, 561)
+y = lorentzian(x, 385.0, 5.0, 600.0, 20.0) + lorentzian(x, 404.0, 6.0, 1000.0, 0.0)
+
+for joint in (False, True):
+    dw1, dw2, s1, s2, f1, f2 = rs.fit_two_modes(x, y, (375, 394), (395, 415),
+                                                ref1=385.0, ref2=404.0, joint=joint)
+    print(f"joint={joint!s:5}: dw1 {dw1:+.4f}  dw2 {dw2:+.4f} cm^-1")
+print(f"correlation of the two fitted centres: {f1.center_correlation:.3f}")
+```
+
+```
+joint=False: dw1 +0.0795  dw2 -0.0279 cm^-1
+joint=True : dw1 +0.0000  dw2 +0.0000 cm^-1
+correlation of the two fitted centres: 0.014
+```
+
+Fitting each peak in its own window leaves the tail of the other peak
+in that window, and the tail pulls the fitted centre: here by 0.08
+cm^-1, comparable to the 0.1 cm^-1 shift error used in the examples
+above, and as a systematic offset rather than random scatter. `joint=True` fits both peaks together, as two
+Lorentzians on one shared baseline, over the whole range from the lower
+edge of the first window to the upper edge of the second; that range
+must not contain a third peak. The two fitted centres are then slightly
+correlated (`center_correlation`); the inversion treats the two shifts
+as independent, which is a good approximation when this number is
+small. `fit_map(..., joint=True)` does the same at every pixel.
+
+### 14. Smoothing a map that has gaps
+
+```python
+import numpy as np
+import ramansep as rs
+
+K = np.array([[-2.3, 1.1], [-0.9, -1.7], [0.4, 2.2]])   # illustrative, non-physical
+rng = np.random.default_rng(7)
+yy, xx = np.mgrid[0:12, 0:12]
+strain = 0.002 * xx
+density = 0.01 + 0.001 * yy
+
+# One error bar per mode AND pixel (as fit_map returns them), and a
+# 3 x 3 patch of pixels whose fits failed.
+sig = np.array([0.03, 0.05, 0.02])[:, None, None] * rng.uniform(0.5, 2.0, (3, 12, 12))
+shifts = np.einsum("mj,jhw->mhw", K, np.stack([strain, density])) \
+    + rng.normal(size=(3, 12, 12)) * sig
+shifts[:, 4:7, 4:7] = np.nan
+
+r = rs.bayesian_map_inversion(K, shifts, sig, lam_strain=1000.0,
+                              fill_masked=True, posterior_sigma=True)
+hole = np.zeros((12, 12), bool)
+hole[4:7, 4:7] = True
+print(f"RMS strain error, measured pixels: {np.sqrt(np.mean((r.strain - strain)[~hole] ** 2)):.4f}")
+print(f"RMS strain error, filled pixels  : {np.sqrt(np.mean((r.strain - strain)[hole] ** 2)):.4f}")
+print(f"strain sigma: hole centre {r.strain_sigma[5, 5]:.4f}, "
+      f"measured pixels (median) {np.median(r.strain_sigma[~hole]):.4f}")
+print("filled centre = mean of its 4 neighbours:",
+      np.isclose(r.strain[5, 5], (r.strain[4, 5] + r.strain[6, 5] + r.strain[5, 4] + r.strain[5, 6]) / 4))
+```
+
+```
+RMS strain error, measured pixels: 0.0077
+RMS strain error, filled pixels  : 0.0064
+strain sigma: hole centre 0.0197, measured pixels (median) 0.0116
+filled centre = mean of its 4 neighbours: True
+```
+
+`bayesian_map_inversion` accepts (since 0.12.0) one error bar per mode
+and per pixel (an array of the same shape as `shifts`), such as the
+`sigma1`, `sigma2` maps of `fit_map`. With `fill_masked=True`, a NaN
+shift (or NaN error bar) counts as a missing measurement: it gets zero
+weight, and the smoothness prior fills the gap from the neighbouring
+pixels. A pixel with no data at all ends up exactly at the average of
+its neighbours, and its error bar is larger than that of a measured
+pixel. The filled values are interpolations, not measurements; they
+were accurate here because the true fields are smooth by construction.
+Filling needs both smoothness weights above zero.
+
+### 15. Calibration uncertainty with three or more modes
+
+```python
+import numpy as np
+import ramansep as rs
+
+# Three modes calibrated together on six reference states (illustrative);
+# the shifts are generated from K_true with 0.1 cm^-1 noise.
+K_true = np.array([[-5.1, -2.2], [-20.9, 0.0], [-8.0, -1.1]])
+eps = np.array([0.0, 0.4, 0.8, 0.0, 0.3, 0.6])
+rho = np.array([0.0, 0.0, 0.2, 0.9, 0.6, 0.3])
+rng = np.random.default_rng(4)
+ref_shifts = np.column_stack([eps, rho]) @ K_true.T + rng.normal(0, 0.1, (6, 3))
+cal = rs.calibrate_lever_arms(eps, rho, ref_shifts, sigmas=0.1)
+
+out = rs.multimode_with_calibration(cal, shifts=[-2.0, -8.0, -3.4],
+                                    sigmas=[0.15, 0.10, 0.12])
+print(f"strain  {float(out['strain']):.4f} %")
+print(f"  error from the spectra     {float(out['strain_sigma_shifts']):.4f}")
+print(f"  error from the calibration {float(out['strain_sigma_calibration']):.4f}")
+print(f"  total                      {float(out['strain_sigma']):.4f}")
+print(f"density {float(out['density']):.4f} x 1e13 cm^-2 +/- {float(out['density_sigma']):.4f}")
+print(f"p-value of the model check: {float(out['p_value']):.2f}")
+```
+
+```
+strain  0.3821 %
+  error from the spectra     0.0046
+  error from the calibration 0.0016
+  total                      0.0049
+density 0.1036 x 1e13 cm^-2 +/- 0.0642
+p-value of the model check: 0.06
+```
+
+`multimode_with_calibration` is the counterpart of example 8 for any
+number of modes: the weighted least-squares separation of example 4,
+with the calibration's own uncertainty carried into the error bars, to
+first order. With more modes than causes the derivative of the answer
+with respect to a lever arm also depends on the leftover mismatch
+(residual) of the fit; the docstring gives the formula, and the tests
+check it against a direct numerical derivative. The chi-square check
+(`chi2_map`, `p_value`) is the one of `MultiModeModel`, which treats the
+lever arms as exact.
+
 ## What is in the package
 
 Every name below is exported from `ramansep` (its `__all__`). Each
@@ -662,8 +860,8 @@ and conventions.
 - `compare_mode_sets(K, sigmas, mode_names, subset_size=2)` -- ranks
   mode subsets by delivered variance.
 - `bayesian_map_inversion(K, shifts, sigmas, lam_strain, lam_density,
-  posterior_sigma, max_dense)`, `BayesianMapResult` -- joint inversion
-  of a whole map with a smoothness prior (a Gaussian Markov random
+  posterior_sigma, max_dense, fill_masked)`, `BayesianMapResult` --
+  joint inversion of a whole map with a smoothness prior (a Gaussian Markov random
   field, Rue and Held 2005: a standard statistical way of saying that
   each pixel is probably close to its four neighbours).
 
@@ -678,11 +876,14 @@ and conventions.
 - `voigt`, `fit_voigt`, `VoigtFit` -- the Voigt shape, computed
   exactly with the Faddeeva function (a standard special function,
   `scipy.special.wofz`), normalised to peak height.
-- `fit_two_modes(x, y, window1, window2, ref1, ref2, baseline)` --
-  fits both peaks, each in its own non-overlapping window, and returns
+- `fit_two_modes(x, y, window1, window2, ref1, ref2, baseline,
+  joint=False)` -- fits both peaks, each in its own non-overlapping
+  window, or with `joint=True` both together (example 13), and returns
   `(dw1, dw2, sigma1, sigma2, fit1, fit2)`.
-- `fit_map(...)`, `MapFitResult` -- the same at every pixel of a
-  cube, with masking of failed pixels.
+- `fit_map(..., joint=False, min_snr=None, fwhm_range=None)`,
+  `MapFitResult`, `MASK_REASONS` -- the same at every pixel of a cube,
+  with masking of failed pixels and a per-pixel reason code
+  (example 12).
 - `load_spectrum_csv`, `save_spectrum_csv`, `load_map_csv`,
   `save_map_csv` -- the documented CSV formats of example 3.
 
@@ -694,7 +895,9 @@ and conventions.
   `coefficients(reference)` for two modes).
 - `plan_calibration`, `design_references`, `repeats_for_sigma` --
   planning, example 7.
-- `separation_with_calibration` -- example 8.
+- `separation_with_calibration` -- example 8;
+  `multimode_with_calibration` -- the same for three or more modes,
+  example 15.
 
 **Temperature**
 
@@ -764,8 +967,9 @@ docstring points to S. Sahoo et al., J. Phys. Chem. C 117, 9042
 
 `ramansep` raises `ValueError` instead of guessing when:
 
-- a two-mode lever-arm matrix is not 2 x 2 or is exactly singular (the
-  two modes respond identically); a merely poorly conditioned one
+- a lever-arm matrix contains NaN or infinity; a two-mode lever-arm
+  matrix is not 2 x 2 or is exactly singular (the two modes respond
+  identically); a merely poorly conditioned one
   (condition number above `condition_warn`, default 30) gives a
   warning, not an error;
 - a multimode or map lever-arm matrix has rank below 2 (below 3 for
@@ -774,8 +978,15 @@ docstring points to S. Sahoo et al., J. Phys. Chem. C 117, 9042
 - the shift maps do not match in shape or number;
 - a shift error (`sigmas`) is zero or negative in `MultiModeModel`,
   `ThreeCauseModel`, `bayesian_map_inversion`, the calibration and
-  planning tools (`SeparationModel` does not check the sign);
-- `bayesian_map_inversion` gets NaN or infinite shifts, a negative
+  planning tools, is zero, negative, NaN or infinite in
+  `compare_mode_sets` (which also refuses a `K` that is not (m, 2)),
+  or negative in
+  `SeparationModel` (zero is allowed there; NaN marks a masked pixel
+  and is passed through as NaN);
+- `bayesian_map_inversion` gets NaN or infinite shifts or error bars
+  without `fill_masked=True`, missing values with a smoothness weight
+  of zero, so little data that the unmasked shifts cannot fix both
+  fields, per-pixel error bars of the wrong shape, a negative
   smoothness weight, or asks for exact error bars above `max_dense`
   unknowns;
 - a peak fit gets too few points (5 for a Lorentzian with a constant
@@ -784,7 +995,8 @@ docstring points to S. Sahoo et al., J. Phys. Chem. C 117, 9042
 - the two fit windows are reversed, overlap, or hold too few points,
   or the `baseline` name is unknown (`fit_two_modes`, and `fit_map`
   before fitting any pixel); `fit_map` also refuses a wavenumber axis
-  that contains NaN or infinity;
+  that contains NaN or infinity, a `min_snr` that is not positive, or
+  a `fwhm_range` that is not (lo, hi) with 0 <= lo < hi;
 - a CSV file has the wrong header or field count, a wavenumber axis
   that is not strictly increasing, a pixel grid with holes, or a pixel
   with its own wavenumber axis;
@@ -793,13 +1005,14 @@ docstring points to S. Sahoo et al., J. Phys. Chem. C 117, 9042
   apart), there are fewer than 2 of them, or fewer than 3 when no
   `sigmas` are given;
 - `CalibrationResult.coefficients` is asked to package other than two
-  modes, or `separation_with_calibration` gets such a calibration;
+  modes, or `separation_with_calibration` gets such a calibration
+  (`multimode_with_calibration` takes any number);
 - the anti-Stokes ratio is at or above the calibration constant, or a
   temperature, frequency, ratio or constant is not positive.
 
 ## How the results are checked
 
-77 automated tests run on every push and pull request, on Python 3.9,
+96 automated tests run on every push and pull request, on Python 3.9,
 3.10, 3.11, 3.12, 3.13 and 3.14, and once more on Python 3.9 with the
 oldest NumPy (1.22.0) and SciPy (1.8.0) the package allows. The
 numerical checks compare the package with an independent calculation,
@@ -898,8 +1111,77 @@ parts, NumPy's own defaults apply, and these are listed too:
 - The anti-Stokes thermometer round trip holds to a relative 1e-9,
   the calibration constant to 1e-12, and the error propagation matches
   a finite difference to a relative 1e-5.
+- With a NaN shift at one pixel and a NaN error bar at another,
+  `ThreeCauseModel` returns NaN at exactly those two pixels and, at
+  every other pixel, bit-identical results to the run without them
+  (new in 0.12.0).
+
+**New in 0.12.0** (`tests/test_v012.py`, 19 tests)
+
+- Joint two-peak fit: its exact derivatives match central finite
+  differences to 1e-6 of each derivative's largest value (plus 1e-9),
+  with both baselines. On a noiseless pair 19 cm^-1 apart (widths 5
+  and 6 cm^-1) the separate-window fits are off by more than 0.05 and
+  0.02 cm^-1; the joint fit recovers both centres and widths to 1e-8
+  cm^-1 and heights and offset to 1e-6, also on a sloped background
+  (slope to 1e-8) and with the windows given in reverse order. On 600
+  seeded noisy spectra of a pair 12 cm^-1 apart, the scatter of each
+  fitted centre is within 12 % of the reported error bar, the mean
+  error is below 4 of its standard errors, and the measured
+  correlation of the two centres is within 0.12 of the reported one
+  (which is above 0.05). `fit_map(..., joint=True)` equals
+  `fit_two_modes(..., joint=True)` bit for bit at every pixel checked.
+- `fit_map` checks: on 30 seeded peak-free spectra, without `min_snr`
+  at least one pixel is kept and at least one is masked for a negative
+  height; with `min_snr=3` none is kept. All 10 seeded spectra with
+  real (weak) peaks are kept, with shifts and error bars bit-identical
+  to the run without the checks. Constructed spectra produce the
+  reason codes 0, 1, 5 and 7.
+- `bayesian_map_inversion`: with per-pixel error bars and `lam = 0`
+  it equals `MultiModeModel` given the same error bars (maps to 1e-12,
+  error bars to 1e-13); per-pixel error bars that are constant per
+  mode equal the scalar path (maps to 1e-12, error bars to 1e-13).
+  With a pixel without data, a missing mode at another pixel and a
+  missing error bar at a third, `fill_masked=True` agrees with an
+  independent dense least-squares solve of the same objective
+  (`numpy.linalg.lstsq`) to 1e-10. A filled pixel equals the average
+  of its neighbours to 1e-12 (interior and corner pixel), with a larger
+  error bar than its measured neighbours; a constant truth is recovered
+  through a 2 x 3 hole to 1e-12 at `lam` = 0.5 and 250.
+- `multimode_with_calibration`: with a two-mode calibration it equals
+  `separation_with_calibration` (all values and error bars, relative
+  1e-10 plus 1e-13); its derivative formula matches central finite
+  differences of the `MultiModeModel` re-solve to a relative 1e-6 plus
+  1e-10 at a point with a non-zero residual; its calibration part
+  matches 400 seeded lever-arm draws within 20 %; with zero
+  calibration covariance it gives the `MultiModeModel` error bar to a
+  relative 1e-12; masked pixels stay NaN.
+- New refusals fire: non-finite lever arms (`SeparationModel`,
+  `MultiModeModel`, `compare_mode_sets`), a negative shift error in
+  `SeparationModel` (NaN still passes as a masked pixel), a zero,
+  negative, NaN or infinite sigma and a `K` that is not (m, 2) in
+  `compare_mode_sets`.
 
 ## Corrections in earlier versions
+
+**0.12.0 fixed three silent or misleading behaviours.**
+
+- `fit_map` kept pixels whose fitted "peak" had a negative height (a
+  dip fitted to noise). Such pixels are now masked (reason code 5).
+  Good pixels give the same numbers as before; on the map of example
+  12, the off-flake pixels kept went from 6 of 20 to 3 of 20 (and to 0
+  with `min_snr=3`).
+- `ThreeCauseModel.invert` refused a whole map, with a misleading
+  "singular" message, when one pixel carried a NaN error bar, which is
+  how `fit_map` marks masked pixels. Such pixels now come out as NaN,
+  as in `MultiModeModel`.
+- `SeparationModel.invert` and `compare_mode_sets` accepted negative
+  shift errors and squared the sign away (for example `sigma1=-0.1`,
+  `sigma2=0.1` with `mos2_a1_2la()` gave a strain error bar of
+  0.0048 %). Both now refuse them. `compare_mode_sets` also returned
+  NaN variances, ranked first, for a zero or NaN sigma, and silently
+  left out every subset with an infinite lever arm; it now refuses
+  those inputs too.
 
 **0.11.1 fixed two silent failures.**
 
@@ -947,15 +1229,26 @@ The full history is in [CHANGELOG.md](CHANGELOG.md).
   `reference` field makes their origin travel with the analysis.
 - The smoothing weights of the Bayesian inversion are user-chosen,
   because estimating them would need noise assumptions this package
-  does not make. That inversion takes one error value per mode for the
-  whole map, not per pixel.
+  does not make. Pixels it fills (`fill_masked=True`) are
+  interpolations from their neighbours, not measurements.
 - Peak-fit error bars are linearised estimates; they are reliable when
   the residuals are dominated by uncorrelated noise.
-- `fit_two_modes` fits each peak in its own window; the tail of the
-  other peak can shift a fitted centre slightly (the round-trip test
-  allows 5e-3 cm^-1).
-- `separation_with_calibration` is first-order in the calibration
-  errors and covers two modes only.
+- By default `fit_two_modes` fits each peak in its own window, and the
+  tail of the other peak can shift a fitted centre (by 0.08 cm^-1 in
+  example 13; the round-trip test allows 5e-3 cm^-1). `joint=True`
+  removes this, provided no third peak lies anywhere from the lower
+  edge of the first window to the upper edge of the second; it fits
+  Lorentzians only (no joint Voigt fit). The inversion then ignores the
+  correlation between the two fitted centres (reported as
+  `center_correlation`).
+- `min_snr` and `fwhm_range` in `fit_map` are off by default and their
+  values are your choice; the package does not decide what counts as
+  "no peak" for your data.
+- `separation_with_calibration` and `multimode_with_calibration` are
+  first-order in the calibration errors. The calibration part is
+  common to all pixels, so it does not average down over a map. The
+  chi-square check of `multimode_with_calibration` ignores the
+  calibration uncertainty.
 
 ## Where it comes from
 

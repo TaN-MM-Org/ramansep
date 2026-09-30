@@ -1,5 +1,117 @@
 # Changelog
 
+## 0.12.0 (2026-09-30)
+
+Overlapping peaks, pixels without a peak, gaps in smoothed maps, and
+calibration uncertainty for any number of modes.
+
+### Added
+
+- `fit_two_modes(..., joint=True)` and `fit_map(..., joint=True)`: the
+  two peaks are fitted together (two Lorentzians on one shared
+  constant or linear baseline) over the range spanned by both windows,
+  starting from the separate window fits. This removes the pull of one
+  peak's tail on the other's fitted centre, listed as a limit until
+  now (0.0795 and -0.0279 cm^-1 on the noiseless pair of README
+  example 13; 0 to printed precision with `joint=True`). The
+  correlation of the two fitted centres is reported in the new
+  `PeakFit.center_correlation` (NaN for single-peak fits). Default
+  `joint=False` is unchanged.
+- `fit_map(..., min_snr=None, fwhm_range=None)`: optional checks that
+  each fitted peak height is at least `min_snr` times its error bar,
+  and that both widths lie in `fwhm_range`. They catch pixels without
+  a peak, where a fit to pure noise can converge on a spike and return
+  a precise-looking shift (+9.92 +/- 0.05 cm^-1 in README example 12).
+- `MapFitResult.reason` and `MASK_REASONS`: why each pixel was masked.
+- `bayesian_map_inversion`: `sigmas` may be an (m, H, W) array (one
+  error bar per mode and pixel), lifting the "one error value per mode"
+  limit; and `fill_masked=True` treats NaN shifts or error bars as
+  missing measurements that the smoothness prior fills from the
+  neighbours (needs both smoothness weights > 0 and unmasked data
+  that fix both fields; refused otherwise). Default behaviour is
+  unchanged.
+- `multimode_with_calibration(calibration, shifts, sigmas)`: the
+  calibration-uncertainty propagation of `separation_with_calibration`
+  for any number of modes, using the exact derivative of the weighted
+  least-squares estimate, dx/dK_mj = w_m A^-1 (e_j r_m - K_m^T x_j),
+  which involves the residual r. Lifts the "two modes only" limit.
+
+### Fixed
+
+- `fit_map` kept pixels whose fitted peak height was negative (a dip,
+  typically a fit to noise). They are now masked (reason code 5).
+- `ThreeCauseModel.invert` failed on the whole map, with the message
+  "weighted design matrix is singular", when any pixel had a NaN error
+  bar (as `fit_map` gives for masked pixels). Such pixels, and pixels
+  with a NaN shift, now come out as NaN, as in `MultiModeModel`.
+- `SeparationModel.invert` accepted negative `sigma1`/`sigma2`, and
+  `compare_mode_sets` negative `sigmas`; the sign was squared away.
+  Both now raise `ValueError` (NaN still passes as a masked pixel in
+  `SeparationModel`; zero is still allowed there).
+- `SeparationModel` and `MultiModeModel` with a NaN or infinite lever
+  arm stopped with numpy's "SVD did not converge"; they now say that
+  the coefficients must be finite (still a `ValueError`).
+- `compare_mode_sets` did not validate its inputs. A zero or NaN
+  sigma returned NaN variances (ranked first, since NaN sorts to the
+  front), an infinite sigma or a NaN lever arm stopped with numpy's
+  `LinAlgError`, an infinite lever arm silently dropped every subset
+  containing that mode, and a 1-D `K` returned an empty list. It now
+  refuses sigmas that are not finite and positive, a non-finite `K`
+  and a `K` that is not (m, 2), with a `ValueError` that says which.
+
+### Behaviour changes
+
+- `fit_map`, default settings: pixels with a negative fitted height
+  are masked. Before/after on README example 12 (20 peak-free
+  pixels): 6 kept before, 3 kept now (0 with `min_snr=3`); all 20
+  pixels with real peaks are kept, with unchanged numbers. Pixels
+  with positive fitted heights give bit-identical results.
+- `SeparationModel.invert(0.1, 0.2, -0.1, 0.1)` with `mos2_a1_2la()`
+  returned a strain error bar of 0.0048 %; it now raises `ValueError`.
+  `compare_mode_sets` with a negative sigma likewise.
+- `compare_mode_sets(K, sigmas)` with the three-mode `K` of README
+  example 4 (checked by running 0.11.1 and 0.12.0):
+  - sigmas `[0, 0.1, 0.12]` or `[nan, 0.1, 0.12]`: before, 3 subsets
+    with `var_strain = var_density = nan` for the first; now
+    `ValueError: sigmas must be finite and positive`.
+  - sigmas `[inf, 0.1, 0.12]`: before, `LinAlgError: Singular
+    matrix`; now the same `ValueError`.
+  - a NaN lever arm: before, `LinAlgError: SVD did not converge`; now
+    `ValueError: K must be finite`.
+  - an infinite lever arm in mode 1: before, a 1-subset ranking
+    (modes 2 and 3 only) with no error; now `ValueError: K must be
+    finite`.
+  - a 1-D `K` of length 3: before, an empty list; now
+    `ValueError: K must have shape (m, 2)`.
+- `ThreeCauseModel.invert` with a NaN error bar at one pixel: before,
+  `ValueError` for the whole map; now NaN at that pixel only, and
+  bit-identical results elsewhere.
+- `bayesian_map_inversion` with a NaN in scalar `sigmas`: before, NaN
+  maps without an error; now refused unless `fill_masked=True`.
+
+### Changed
+
+- The draft paper in `paper/` (a planned Journal of Open Source Software
+  submission) is no longer kept in the repository.
+- README: examples 12-15 for the new features, each with the output
+  it printed; updated refusals, test descriptions, corrections and
+  "Limits" (lifted: one error value per mode in the Bayesian
+  inversion, the separate-window tail bias as the only option, two
+  modes only for calibration propagation; added: filled pixels are
+  interpolations, the joint fit needs a span without a third peak and
+  its centre correlation is not used by the inversion, the
+  calibration part is an error common to the whole map, the
+  `fit_map` thresholds are the user's choice).
+- `bayesian`, `mapfit`, `fitting`, `propagate` module docstrings
+  updated accordingly.
+
+### Tests
+
+- New `tests/test_v012.py` (19 tests; see the README section "How the
+  results are checked"). Test count: 77 -> 96. The full suite also
+  passes with the oldest allowed dependencies (NumPy 1.22.0,
+  SciPy 1.8.0) on Python 3.9 and 3.10.
+
 ## 0.11.1 (2026-09-22)
 
 Two silent failures fixed, the README rewritten, and CI extended.
