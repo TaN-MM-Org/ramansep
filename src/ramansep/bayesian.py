@@ -32,9 +32,18 @@ provable and the tests assert it rather than trust it:
   its lam = 0 value -- asserted numerically pixel by pixel.
 
 The prior graph is the 4-neighbor pixel lattice with natural (Neumann)
-boundaries. Per-mode shift uncertainties are scalars here (one
-uncertainty per mode across the map); per-pixel weights would make the
-data term pixel-dependent but change nothing structural.
+boundaries. Shift uncertainties are either one scalar per mode for the
+whole map, or (since v0.12) one value per mode and pixel, which makes
+the data term pixel-dependent without changing anything structural.
+
+Masked pixels (since v0.12, on request): a missing measurement is a
+zero data weight, so with ``fill_masked=True`` the same linear system
+fills the gaps from the neighbours. At a pixel without any data the
+optimality condition reduces to lam (L x)_i = 0, i.e. the value is the
+exact average of its neighbours (a discrete harmonic interpolation);
+the tests assert this, recovery of a constant truth through the gaps,
+and agreement with an independent dense least-squares solve of the
+same objective.
 """
 from __future__ import annotations
 
@@ -74,18 +83,33 @@ def _grid_laplacian(h, w):
 
 
 def bayesian_map_inversion(K, shifts, sigmas, lam_strain, lam_density=None,
-                           posterior_sigma=False, max_dense=4096):
+                           posterior_sigma=False, max_dense=4096,
+                           fill_masked=False):
     """Joint MAP inversion of shift maps with spatial smoothness priors.
 
     K : (m, 2) lever-arm matrix of rank 2 (as in `MultiModeModel`);
         a rank-deficient K is refused, as `MultiModeModel` refuses it.
     shifts : (m, H, W) measured shift maps.
-    sigmas : (m,) per-mode shift uncertainties (scalars across the map).
+    sigmas : (m,) per-mode shift uncertainties, one value per mode for
+        the whole map; or (since v0.12) (m, H, W), one value per mode
+        and pixel, e.g. the `sigma1`, `sigma2` maps of `fit_map`
+        stacked. Must be positive where the shift is finite.
     lam_strain, lam_density : smoothness weights (>= 0); lam_density
         defaults to lam_strain. lam = 0 is exactly the per-pixel GLS.
     posterior_sigma : also return exact per-pixel posterior sigmas
         (dense inverse; refused above ``max_dense`` unknowns rather
         than approximated silently).
+    fill_masked : False (default) refuses non-finite shifts. True (new
+        in v0.12) treats every non-finite shift -- or non-finite sigma
+        -- as a missing measurement of that mode at that pixel: it gets
+        zero weight, and the smoothness prior fills the gap from the
+        neighbours (a pixel with no data at all ends up at the average
+        of its neighbours, for both fields). Needs lam_strain > 0 and
+        lam_density > 0, and enough data overall to fix both fields
+        (the pooled information sum_p K^T W_p K of rank 2); otherwise
+        refused. The returned maps then have values at the masked
+        pixels too: they are interpolations, and their posterior sigmas
+        are larger than those of measured pixels.
 
     Returns a `BayesianMapResult`.
     """
@@ -101,34 +125,81 @@ def bayesian_map_inversion(K, shifts, sigmas, lam_strain, lam_density=None,
     shifts = np.asarray(shifts, dtype=float)
     if shifts.ndim != 3 or shifts.shape[0] != m:
         raise ValueError("shifts must be (m, H, W)")
-    if not np.all(np.isfinite(shifts)):
-        raise ValueError(
-            "shifts contain non-finite values; the smoothness prior "
-            "couples pixels, so masked pixels (e.g. from fit_map) "
-            "must be excluded or infilled deliberately before a joint "
-            "map inversion -- the per-pixel inversion propagates them "
-            "as NaN instead")
+    _, H_, W_ = shifts.shape
+    npix = H_ * W_
     sig = np.asarray(sigmas, dtype=float)
-    if sig.shape != (m,) or np.any(sig <= 0.0):
-        raise ValueError("sigmas must be m positive scalars")
+    per_pixel = sig.ndim == 3
+    if per_pixel:
+        if sig.shape != shifts.shape:
+            raise ValueError("per-pixel sigmas must have the shape of "
+                             f"shifts {shifts.shape}; got {sig.shape}")
+    elif sig.shape != (m,):
+        raise ValueError("sigmas must be m positive scalars or an "
+                         "(m, H, W) array")
     lam_s = float(lam_strain)
     lam_n = lam_s if lam_density is None else float(lam_density)
     if lam_s < 0.0 or lam_n < 0.0:
         raise ValueError("smoothness weights must be non-negative")
 
-    _, H_, W_ = shifts.shape
-    npix = H_ * W_
-    Wmat = np.diag(1.0 / sig ** 2)
-    A2 = K.T @ Wmat @ K                          # (2, 2) data precision
-    s_flat = shifts.reshape(m, npix)
-    b2 = K.T @ Wmat @ s_flat                     # (2, npix)
+    sig_full = np.broadcast_to(sig[:, None, None] if not per_pixel
+                               else sig, shifts.shape)
+    present = np.isfinite(shifts) & np.isfinite(sig_full)
+    if not fill_masked and not np.all(np.isfinite(shifts)):
+        raise ValueError(
+            "shifts contain non-finite values; the smoothness prior "
+            "couples pixels, so masked pixels (e.g. from fit_map) "
+            "must be excluded or infilled deliberately before a joint "
+            "map inversion -- pass fill_masked=True to let the prior "
+            "fill them, or use the per-pixel inversion, which "
+            "propagates them as NaN")
+    if not fill_masked and not np.all(np.isfinite(sig_full)):
+        raise ValueError("sigmas contain non-finite values; pass "
+                         "fill_masked=True to treat those entries as "
+                         "missing")
+    if np.any(sig_full[present] <= 0.0):
+        raise ValueError("sigmas must be positive")
+    n_missing = int(present.size - present.sum())
+    if n_missing and (lam_s <= 0.0 or lam_n <= 0.0):
+        raise ValueError(
+            f"{n_missing} shift values are missing; filling them needs "
+            "the smoothness prior on both fields (lam_strain > 0 and "
+            "lam_density > 0)")
+
+    # per-pixel data weights, zero where a measurement is missing
+    w = np.zeros(shifts.shape)
+    w[present] = 1.0 / sig_full[present] ** 2
+    s0 = np.where(present, shifts, 0.0)
+    w_flat = w.reshape(m, npix)
+    s_flat = s0.reshape(m, npix)
+    if n_missing:
+        pooled = np.einsum("ki,kp,kj->ij", K, w_flat, K)
+        ev = np.linalg.eigvalsh(pooled)
+        if not ev[0] > 1e-12 * ev[-1]:
+            raise ValueError(
+                "the measured (unmasked) shifts do not determine both "
+                "fields even with the prior: their pooled information "
+                "matrix is singular")
 
     L = _grid_laplacian(H_, W_)
-    ident = speye(npix, format="csr")
-    A = bmat([[A2[0, 0] * ident + lam_s * L, A2[0, 1] * ident],
-              [A2[1, 0] * ident, A2[1, 1] * ident + lam_n * L]],
-             format="csc")
-    b = np.concatenate([b2[0], b2[1]])
+    if per_pixel or n_missing:
+        from scipy.sparse import diags
+        a11 = np.einsum("k,kp->p", K[:, 0] ** 2, w_flat)
+        a12 = np.einsum("k,kp->p", K[:, 0] * K[:, 1], w_flat)
+        a22 = np.einsum("k,kp->p", K[:, 1] ** 2, w_flat)
+        A = bmat([[diags(a11) + lam_s * L, diags(a12)],
+                  [diags(a12), diags(a22) + lam_n * L]], format="csc")
+        b = np.concatenate([K[:, 0] @ (w_flat * s_flat),
+                            K[:, 1] @ (w_flat * s_flat)])
+    else:
+        # the historical scalar-sigma path, kept operation for operation
+        Wmat = np.diag(1.0 / sig ** 2)
+        A2 = K.T @ Wmat @ K                      # (2, 2) data precision
+        b2 = K.T @ Wmat @ shifts.reshape(m, npix)  # (2, npix)
+        ident = speye(npix, format="csr")
+        A = bmat([[A2[0, 0] * ident + lam_s * L, A2[0, 1] * ident],
+                  [A2[1, 0] * ident, A2[1, 1] * ident + lam_n * L]],
+                 format="csc")
+        b = np.concatenate([b2[0], b2[1]])
     x = spsolve(A, b)
     strain = x[:npix].reshape(H_, W_)
     density = x[npix:].reshape(H_, W_)

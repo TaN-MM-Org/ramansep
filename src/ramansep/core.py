@@ -62,6 +62,8 @@ class SeparationModel:
         self.K = np.asarray(coefficients.matrix(), dtype=float)
         if self.K.shape != (2, 2):
             raise ValueError("coefficient matrix must be 2x2")
+        if not np.all(np.isfinite(self.K)):
+            raise ValueError("coefficients must be finite numbers")
         det = np.linalg.det(self.K)
         if det == 0.0:
             raise ValueError(
@@ -85,7 +87,10 @@ class SeparationModel:
         dw1, dw2 : peak shifts of mode 1 and mode 2 (cm^-1), relative to the
             pristine-material reference frequency of each mode.
         sigma1, sigma2 : optional 1-sigma uncertainties of the shifts,
-            scalar or arrays broadcastable to the map shape.
+            scalar or arrays broadcastable to the map shape. They must
+            not be negative (refused since v0.12; before, a negative
+            sigma was squared away silently). NaN is allowed and marks
+            a masked pixel, as `fit_map` produces.
         """
         dw1 = np.asarray(dw1, dtype=float)
         dw2 = np.asarray(dw2, dtype=float)
@@ -99,6 +104,9 @@ class SeparationModel:
         if sigma1 is not None and sigma2 is not None:
             s1 = np.broadcast_to(np.asarray(sigma1, dtype=float), dw1.shape)
             s2 = np.broadcast_to(np.asarray(sigma2, dtype=float), dw2.shape)
+            if np.any(s1 < 0.0) or np.any(s2 < 0.0):
+                raise ValueError("shift uncertainties sigma1, sigma2 must "
+                                 "not be negative")
             var_strain = (self.Kinv[0, 0] * s1) ** 2 + (self.Kinv[0, 1] * s2) ** 2
             var_density = (self.Kinv[1, 0] * s1) ** 2 + (self.Kinv[1, 1] * s2) ** 2
             cov = (self.Kinv[0, 0] * self.Kinv[1, 0] * s1**2

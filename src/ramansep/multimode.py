@@ -72,6 +72,8 @@ class MultiModeModel:
         self.K = np.asarray(K, dtype=float)
         if self.K.ndim != 2 or self.K.shape[1] != 2 or self.K.shape[0] < 2:
             raise ValueError("K must have shape (m >= 2, 2)")
+        if not np.all(np.isfinite(self.K)):
+            raise ValueError("K must be finite")
         if np.linalg.matrix_rank(self.K) < 2:
             raise ValueError("lever-arm matrix has rank < 2: the modes "
                              "cannot separate strain from density")
@@ -167,9 +169,15 @@ def compare_mode_sets(K, sigmas, mode_names=None, subset_size: int = 2):
     """
     K = np.asarray(K, dtype=float)
     sigmas = np.asarray(sigmas, dtype=float)
+    if K.ndim != 2 or K.shape[1] != 2:
+        raise ValueError("K must have shape (m, 2)")
+    if not np.all(np.isfinite(K)):
+        raise ValueError("K must be finite")
     m = K.shape[0]
     if sigmas.shape != (m,):
         raise ValueError("one sigma per mode required")
+    if not np.all(np.isfinite(sigmas)) or np.any(sigmas <= 0.0):
+        raise ValueError("sigmas must be finite and positive")
     names = (list(mode_names) if mode_names is not None
              else [f"mode{i+1}" for i in range(m)])
     out = []

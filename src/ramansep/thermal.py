@@ -126,6 +126,11 @@ class ThreeCauseModel:
         (scalars or arrays broadcastable to the map shape); omitted
         means unit weights, in which case chi2_map is calibrated only
         if the shift noise really is unit variance.
+
+        A pixel whose shift or sigma is not finite in any mode (a pixel
+        masked by `fit_map`) is returned as NaN in every output map and
+        does not affect the other pixels (since v0.12; before, a NaN
+        sigma made the whole call fail).
         """
         S = np.stack([np.asarray(s, dtype=float) for s in shifts])
         if S.shape[0] != self.m:
@@ -141,19 +146,32 @@ class ThreeCauseModel:
                 raise ValueError("sigmas must be positive")
         P = int(np.prod(map_shape)) if map_shape else 1
         s_flat = S.reshape(self.m, P)
-        w_flat = 1.0 / sig.reshape(self.m, P) ** 2
+        sig_flat = sig.reshape(self.m, P)
+        # masked pixels (NaN shift or NaN sigma, as fit_map produces)
+        # come out NaN, as in MultiModeModel; before v0.12 a NaN sigma
+        # made the whole map fail with a misleading "singular" error
+        good = (np.all(np.isfinite(s_flat), axis=0)
+                & np.all(np.isfinite(sig_flat), axis=0))
         K = self.K
-        # per-pixel information matrix A_p = K^T W_p K, (P, 3, 3)
-        A = np.einsum("ki,kp,kj->pij", K, w_flat, K)
-        b = np.einsum("ki,kp->pi", K, w_flat * s_flat)
-        det = np.linalg.det(A)
-        if np.any(det <= 0) or not np.all(np.isfinite(det)):
-            raise ValueError("weighted design matrix is singular at some "
-                             "pixels; check the coefficients and sigmas")
-        x = np.linalg.solve(A, b[..., None])[..., 0]   # (P, 3)
-        cov = np.linalg.inv(A)                    # (P, 3, 3)
-        pred = np.einsum("ki,pi->kp", K, x)
-        resid2 = np.einsum("kp,kp->p", w_flat, (s_flat - pred) ** 2)
+        x = np.full((P, 3), np.nan)
+        cov = np.full((P, 3, 3), np.nan)
+        resid2 = np.full(P, np.nan)
+        if np.any(good):
+            sg = s_flat[:, good]
+            wg = 1.0 / sig_flat[:, good] ** 2
+            # per-pixel information matrix A_p = K^T W_p K, (Pg, 3, 3)
+            A = np.einsum("ki,kp,kj->pij", K, wg, K)
+            b = np.einsum("ki,kp->pi", K, wg * sg)
+            det = np.linalg.det(A)
+            if np.any(det <= 0) or not np.all(np.isfinite(det)):
+                raise ValueError("weighted design matrix is singular at "
+                                 "some pixels; check the coefficients "
+                                 "and sigmas")
+            xg = np.linalg.solve(A, b[..., None])[..., 0]   # (Pg, 3)
+            x[good] = xg
+            cov[good] = np.linalg.inv(A)                   # (Pg, 3, 3)
+            pred = np.einsum("ki,pi->kp", K, xg)
+            resid2[good] = np.einsum("kp,kp->p", wg, (sg - pred) ** 2)
         dof = self.m - 3
         if dof > 0:
             chi2_map = resid2.reshape(map_shape)

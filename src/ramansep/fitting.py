@@ -34,6 +34,14 @@ Exact facts the test suite asserts, rather than states:
 * A full round trip (strain/density maps -> forward shifts -> synthetic
   spectra -> `fit_two_modes` -> `SeparationModel.invert`) returns the
   input maps.
+
+Since v0.12 `fit_two_modes(..., joint=True)` fits two overlapping
+peaks together (two Lorentzians on one shared baseline, same
+Levenberg-Marquardt loop, analytic Jacobian checked against finite
+differences), which removes the pull of one peak's tail on the other
+peak's fitted centre; on noiseless overlapping pairs it recovers both
+centres to 1e-8, and on seeded noisy spectra its reported centre errors
+and centre correlation match the Monte Carlo scatter.
 """
 from __future__ import annotations
 
@@ -57,6 +65,9 @@ class PeakFit:
         x unit, about the window center) and its uncertainty, when
         `baseline="linear"` was requested; 0 and NaN for the constant
         baseline (new in v0.8).
+    center_correlation : correlation between the two fitted centres
+        when this fit came from `fit_two_modes(..., joint=True)`; NaN
+        for a single-peak fit (new in v0.12).
     """
 
     center: float
@@ -72,6 +83,7 @@ class PeakFit:
     converged: bool
     slope: float = 0.0
     slope_sigma: float = float("nan")
+    center_correlation: float = float("nan")
 
 
 def lorentzian(x, center, fwhm, amplitude, offset=0.0):
@@ -268,7 +280,7 @@ def _check_two_mode_setup(x, window1, window2, baseline):
 
 
 def fit_two_modes(x, y, window1, window2, ref1, ref2,
-                  baseline="constant"):
+                  baseline="constant", joint=False):
     """Fit both modes of a spectrum and return inversion-ready shifts.
 
     x, y : the spectrum (wavenumber axis and counts).
@@ -280,11 +292,24 @@ def fit_two_modes(x, y, window1, window2, ref1, ref2,
     baseline : "constant" or "linear", passed to `fit_lorentzian`
         (new in v0.8; use "linear" for a sloped fluorescence
         background).
+    joint : False (default, unchanged behaviour) fits each peak alone
+        in its own window, so the tail of the other peak that reaches
+        into a window pulls that fitted centre slightly. True (new in
+        v0.12) fits ONE model -- two Lorentzians on a shared baseline --
+        to every point between the lower edge of the lower window and
+        the upper edge of the higher one, starting from the separate
+        window fits. Both tails are then part of the model, so this bias
+        is gone. That span must contain no third peak. The two fitted
+        centres are then slightly correlated; the correlation is
+        reported in `fit1.center_correlation` (the inversion itself
+        treats dw1 and dw2 as independent).
 
     Returns (dw1, dw2, sigma1, sigma2, fit1, fit2): the two peak shifts
     relative to the references, their 1-sigma uncertainties, and the two
     full `PeakFit` results. Feed the first four straight into
-    `SeparationModel.invert(dw1, dw2, sigma1, sigma2)`.
+    `SeparationModel.invert(dw1, dw2, sigma1, sigma2)`. With
+    `joint=True` both `PeakFit`s share the baseline (`offset`, `slope`),
+    `residual_rms`, `n_iter` and `converged` of the joint fit.
     """
     x = np.asarray(x, dtype=float).ravel()
     y = np.asarray(y, dtype=float).ravel()
@@ -294,8 +319,123 @@ def fit_two_modes(x, y, window1, window2, ref1, ref2,
         m = (x >= lo) & (x <= hi)
         fits.append(fit_lorentzian(x[m], y[m], baseline=baseline))
     fit1, fit2 = fits
+    if joint:
+        fit1, fit2 = _fit_two_lorentzians_joint(x, y, w1, w2, baseline,
+                                                fit1, fit2)
     return (fit1.center - float(ref1), fit2.center - float(ref2),
             fit1.center_sigma, fit2.center_sigma, fit1, fit2)
+
+
+# ----------------------------------------------------------------------
+# Joint fit of two overlapping Lorentzians (new in v0.12).
+
+def _two_lorentzians_model_and_jacobian(x, p, x0, lin):
+    """Two Lorentzians on a shared baseline. Parameters
+    (c1, G1, A1, c2, G2, A2, b[, m]); the optional slope term is
+    m (x - x0) with x0 fixed, as in `_model_and_jacobian_linear`."""
+    npar = 8 if lin else 7
+    J = np.empty((x.size, npar))
+    y = np.full(x.size, p[6])
+    for k in range(2):
+        c, G, A = p[3 * k], p[3 * k + 1], p[3 * k + 2]
+        h = 0.5 * G
+        u = x - c
+        d = u * u + h * h
+        core = h * h / d
+        y = y + A * core
+        J[:, 3 * k] = A * h * h * 2.0 * u / (d * d)       # d/dc
+        J[:, 3 * k + 1] = A * h * u * u / (d * d)         # d/dG
+        J[:, 3 * k + 2] = core                            # d/dA
+    J[:, 6] = 1.0                                         # d/db
+    if lin:
+        y = y + p[7] * (x - x0)
+        J[:, 7] = x - x0                                  # d/dm
+    return y, J
+
+
+def _fit_two_lorentzians_joint(x, y, w1, w2, baseline, start1, start2,
+                               max_iter=300, tol=1e-12):
+    """Levenberg-Marquardt fit of two Lorentzians plus a shared
+    baseline on the span covering both windows; the same damping rule
+    and linearised covariance as `fit_lorentzian`. Returns two
+    `PeakFit`s (mode 1, mode 2)."""
+    lin = baseline == "linear"
+    npar = 8 if lin else 7
+    lo = min(w1[0], w2[0])
+    hi = max(w1[1], w2[1])
+    sel = (x >= lo) & (x <= hi)
+    xs, ys = x[sel], y[sel]
+    x0 = float(xs.mean())
+    # the separate window fits each carry the other peak's tail in
+    # their offsets, so the lower offset is the better baseline start
+    b0 = min(start1.offset, start2.offset)
+    p = np.array([start1.center, start1.fwhm, start1.amplitude,
+                  start2.center, start2.fwhm, start2.amplitude, b0]
+                 + ([0.0] if lin else []), dtype=float)
+
+    def mj(pv):
+        return _two_lorentzians_model_and_jacobian(xs, pv, x0, lin)
+
+    lam = 1e-3
+    yfit, J = mj(p)
+    r = ys - yfit
+    cost = float(r @ r)
+    converged = False
+    it = 0
+    for it in range(1, max_iter + 1):
+        JTJ = J.T @ J
+        g = J.T @ r
+        try:
+            step = np.linalg.solve(JTJ + lam * np.diag(np.diag(JTJ)), g)
+        except np.linalg.LinAlgError:            # pragma: no cover
+            lam *= 10.0
+            continue
+        p_new = p + step
+        p_new[1] = abs(p_new[1])                 # width signs are gauges
+        p_new[4] = abs(p_new[4])
+        y_new, J_new = mj(p_new)
+        r_new = ys - y_new
+        cost_new = float(r_new @ r_new)
+        if cost_new < cost:
+            rel = (cost - cost_new) / max(cost, 1e-300)
+            p, r, J, cost = p_new, r_new, J_new, cost_new
+            lam = max(lam / 10.0, 1e-12)
+            if rel < tol:
+                converged = True
+                break
+        else:
+            lam *= 10.0
+            if lam > 1e12:
+                converged = True                 # stuck at a minimum
+                break
+
+    dof = xs.size - npar
+    if dof < 1:
+        raise ValueError("the joint fit span holds too few points")
+    s2 = cost / dof
+    try:
+        cov = s2 * np.linalg.inv(J.T @ J)
+        sig = np.sqrt(np.maximum(np.diag(cov), 0.0))
+        with np.errstate(invalid="ignore", divide="ignore"):
+            rho = float(cov[0, 3] / (sig[0] * sig[3]))
+    except np.linalg.LinAlgError:                # pragma: no cover
+        sig = np.full(npar, np.nan)
+        rho = float("nan")
+    rms = float(np.sqrt(cost / xs.size))
+    out = []
+    for k in range(2):
+        out.append(PeakFit(
+            center=float(p[3 * k]), fwhm=float(p[3 * k + 1]),
+            amplitude=float(p[3 * k + 2]), offset=float(p[6]),
+            center_sigma=float(sig[3 * k]),
+            fwhm_sigma=float(sig[3 * k + 1]),
+            amplitude_sigma=float(sig[3 * k + 2]),
+            offset_sigma=float(sig[6]), residual_rms=rms, n_iter=it,
+            converged=converged,
+            slope=float(p[7]) if lin else 0.0,
+            slope_sigma=float(sig[7]) if lin else float("nan"),
+            center_correlation=rho))
+    return out[0], out[1]
 
 
 # ----------------------------------------------------------------------
