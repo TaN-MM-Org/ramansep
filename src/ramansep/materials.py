@@ -134,8 +134,10 @@ def graphene_g_2d_lee2012() -> ModeCoefficients:
     here would misrepresent the physics. To convert the doping coordinate
     to a Fermi level, use a gated calibration measured on your substrate,
     e.g. the asymptotic relations of Froehlicher and Berciaud, Phys. Rev.
-    B 91, 205413 (2015) (for holes, E_F [meV] ~ 21 dw_G + 75 at
-    |E_F| >= 100 meV), and then to a density via the graphene dispersion.
+    B 91, 205413 (2015) (their Eqs. 9-10, E_F in meV and dw_G in cm^-1:
+    for holes, E_F ~ -18 dw_G - 83 at E_F <= -100 meV; for electrons,
+    E_F ~ 21 dw_G + 75 at E_F >= 100 meV), and then to a density via the
+    graphene dispersion.
 
     For biaxial strain the source compiles a G-band rate of
     -69.1 +/- 3.4 cm^-1 per percent, but the corresponding 2D/G ratio is
@@ -208,9 +210,11 @@ def mos2_eprime_a1() -> ModeCoefficients:
             "Strain: measured biaxial Grueneisen parameters, A. Michail "
             "et al., ACS Appl. Mater. Interfaces 16, 49602 (2024) "
             "(gamma_E'=0.56, gamma_A'1=0.31), converted with "
-            "w(E')=385.0 cm^-1 and w(A'1)=403.0 cm^-1 (Mignuzzi et al., "
-            "Phys. Rev. B 91, 195411 (2015); Michail et al., Appl. Phys. "
-            "Lett. 108, 173102 (2016)). Doping (measured): B. Chakraborty "
+            "w(E')=385.0 cm^-1 and w(A'1)=403.0 cm^-1, rounded monolayer "
+            "values (cf. Mignuzzi et al., Phys. Rev. B 91, 195411 (2015); "
+            "Michail et al., Appl. Phys. Lett. 108, 173102 (2016), whose "
+            "strain-doping origin is at 384.6 and 402.7 cm^-1; the "
+            "rates agree to the digits shown). Doping (measured): B. Chakraborty "
             "et al., Phys. Rev. B 85, 161403(R) (2012). Compiled as in "
             "T. M. Mahim and M. M. Rahman (under review), "
             "doi:10.5281/zenodo.21778170."
