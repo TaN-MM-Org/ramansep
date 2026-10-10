@@ -1076,8 +1076,10 @@ before use.
   -4.31 (E') and -2.50 (A'1) cm^-1 per percent, from the measured
   biaxial Grueneisen parameters 0.56 and 0.31 of Michail et al., ACS
   Appl. Mater. Interfaces 16, 49602 (2024), converted with the mode
-  frequencies 385.0 and 403.0 cm^-1 (Mignuzzi et al., Phys. Rev. B 91,
-  195411 (2015); Michail et al. 2016). Doping responses -0.33 (E') and
+  frequencies 385.0 and 403.0 cm^-1. These are rounded monolayer
+  values (see Mignuzzi et al., Phys. Rev. B 91, 195411 (2015)); Michail
+  et al. 2016 place their strain-doping origin at 384.6 and
+  402.7 cm^-1, which gives the same arms to the digits shown. Doping responses -0.33 (E') and
   -2.2 (A'1) cm^-1 per 1e13 cm^-2, measured by Chakraborty et al.
   (2012). Stated conditions: 1H monolayer, on SiO2, 300 K. Both modes
   respond weakly to strain, so it carries about five times the strain

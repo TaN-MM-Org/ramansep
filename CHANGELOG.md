@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.13.1 (2026-10-10)
+
+Citation corrections and packaging.
+
+### Fixed (documentation)
+
+- `graphene_g_2d_lee2012` docstring: the Fermi-level relation quoted "for
+  holes" was the electron one. Froehlicher and Berciaud, Phys. Rev. B
+  91, 205413 (2015) give `E_F = -18 dw_G - 83` (meV, holes, E_F <=
+  -100 meV, their Eq. 10) and `E_F = 21 dw_G + 75` (electrons, E_F >=
+  100 meV, Eq. 9). Both are now quoted. No code used the relation.
+- `mos2_eprime_a1` reference and README: the mode frequencies 385.0
+  and 403.0 cm^-1 used to convert the Grueneisen parameters are rounded
+  monolayer values. Michail et al., Appl. Phys. Lett. 108, 173102 (2016)
+  place their strain-doping origin at 384.6 and 402.7 cm^-1, which gives
+  the same strain arms (-4.31 and -2.50 cm^-1 per percent) to the digits
+  shipped. The numbers are unchanged.
+- Packaging: the license is now given as the SPDX expression
+  `license = "Apache-2.0"` with `license-files = ["LICENSE"]`, and the
+  old license table and license classifier are gone. Building no longer
+  prints setuptools' deprecation warnings (their support ends on
+  2027-02-18). Building from source now needs setuptools 77 or newer;
+  installing the package is unchanged.
+
 ## 0.13.0 (2026-10-10)
 
 Reading instrument text exports, calibrating without knowing the
