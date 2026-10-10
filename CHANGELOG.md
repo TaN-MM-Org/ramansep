@@ -1,5 +1,96 @@
 # Changelog
 
+## 0.13.0 (2026-10-10)
+
+Reading instrument text exports, calibrating without knowing the
+starting state, and three silent failures fixed.
+
+### Added
+
+- `load_map_table(path, usecols=(0, 1, 2, 3), delimiter=None,
+  decimals=None)`: reads a map from a plain four-column text table
+  (stage x, stage y, wavenumber, counts), the layout many mapping
+  programs export, in any line order and with the wavenumber in either
+  direction; rebuilds the pixel grid from the stage positions and
+  returns `(wavenumber, cube, x_positions, y_positions)`. Refuses a
+  scan that is not a complete rectangle, a pixel with its own axis or
+  number of points, repeated or non-finite wavenumbers and non-finite
+  positions. `load_spectrum_table` reads a two-column spectrum the same
+  way. Tests: exact (bit for bit) recovery of independently built
+  arrays from files written line by line, and `fit_map` on the loaded
+  cube equal to `fit_map` on the original cube bit for bit.
+- `calibrate_lever_arms(..., fit_offset=True)`: one free offset per
+  mode, so strain and density need to be known only relative to the
+  starting state and the shifts may be absolute peak positions. New
+  `CalibrationResult` fields `offset`, `offset_sigma` and `full_cov`
+  (None for the default fit). `cov` and `K_sigma` include the offset
+  uncertainty, so the propagation tools take the result unchanged.
+  Checked against `numpy.linalg.lstsq`, the Frisch-Waugh-Lovell closed
+  form of the covariance, the closed-form bias of the through-origin
+  fit, and seeded Monte Carlo. `plan_calibration` and
+  `repeats_for_sigma` take `fit_offset=True` as well.
+- `calibrate_lever_arms`: one error bar per point, shape (n,), for a
+  single mode passed as (n,). Before, this stopped with NumPy's
+  "operands could not be broadcast" error.
+- README examples 16 (reading an instrument export) and 17
+  (calibration with an unknown starting state), with the output they
+  print.
+
+### Fixed
+
+- `load_spectrum_csv` accepted a wavenumber axis containing NaN or
+  infinity. Before: the axis 400, nan, 402, 403 loaded as
+  `[400, nan, 402, 403]` (and 400, 401, inf as `[400, 401, inf]`).
+  After: `ValueError: wavenumber axis contains NaN or infinite
+  values`. Test: `test_load_spectrum_csv_refuses_non_finite_axis`.
+- `fit_map` with a NaN (or infinite) `ref1`/`ref2`: before, `ok` was
+  True at all pixels and `n_masked` 0 while every shift was NaN (6 of
+  6 pixels on the test map); `fit_two_modes` returned a NaN shift.
+  After: `ValueError` before any pixel is fitted. Test:
+  `test_fit_map_refuses_a_non_finite_reference`.
+- `bayesian_map_inversion` with `lam_strain` or `lam_density` NaN or
+  infinite: before, all-NaN maps with only SciPy's
+  `MatrixRankWarning` ("Matrix is exactly singular"); after,
+  `ValueError` that suggests a large finite weight. Test:
+  `test_bayesian_refuses_non_finite_smoothness_weights`.
+- Documentation: `MultiModeResult.condition_number` is the condition
+  number of the unweighted K (the docstring said "weighted" for scalar
+  sigmas; the value is unchanged); `fit_voigt`'s default start has a
+  Gaussian FWHM equal to the width estimate and a Lorentzian FWHM of
+  half of it (the docstring said "split evenly"); the `fitting` module
+  docstring now quotes the 1e-6 tolerance the tests use for amplitude
+  and baseline; `SeparationResult.density` is in the lever-arm unit
+  (the docstring said cm^-2).
+
+### Changed
+
+- Clearer messages: `load_map_csv` with a NaN or infinite wavenumber
+  (it said pixel (0, 0) "carries a different wavenumber axis than
+  pixel (0, 0)"); non-numeric fields in `load_spectrum_csv` and
+  `load_map_csv` (now with the line number); `MultiModeModel.invert`
+  and `ThreeCauseModel.invert` with the wrong number of sigmas or
+  shift maps of different shapes (before: NumPy reshape or stack
+  errors); `SeparationModel.invert` with maps of different shapes (now
+  with the shapes); `calibrate_lever_arms` with sigmas of a shape that
+  fits neither the points nor the modes. All are still `ValueError`.
+- Type hints on `fit_two_modes`, `fit_map`, `bayesian_map_inversion`,
+  `calibrate_lever_arms`, the planning functions and the file loaders;
+  a docstring for `BayesianMapResult`.
+- Results of all existing calls are unchanged: a set of 0.12.0 calls
+  covering fitting (both baselines, joint and separate, `min_snr`),
+  the two-mode, multimode, three-cause and Bayesian inversions,
+  calibration (all sigma forms), planning and both propagation tools
+  gives bit-identical output under 0.12.0 and 0.13.0, and all README
+  examples 1 to 15 print the same output.
+- README: examples 16 and 17; updated package list, refusals, test
+  descriptions, corrections and limits.
+
+### Tests
+
+- New `tests/test_v013.py` (18 tests). Test count: 96 -> 114. The
+  full suite also passes with the oldest allowed dependencies (NumPy
+  1.22.0, SciPy 1.8.0).
+
 ## 0.12.0 (2026-09-30)
 
 Overlapping peaks, pixels without a peak, gaps in smoothed maps, and

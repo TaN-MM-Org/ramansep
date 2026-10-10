@@ -15,16 +15,18 @@ charge, the two measured shifts give two equations with two unknowns.
 strain map and a charge-density map, each with an error bar. It also
 covers the steps around that:
 
-- How do I get the peak shifts out of my measured spectra, and which
-  pixels failed or carry no peak at all?
+- How do I read the text files my instrument exports, and get the
+  peak shifts out of the measured spectra? Which pixels failed or
+  carry no peak at all?
 - What if two peaks overlap?
 - Which pair of peaks separates the two causes best?
 - With three or more peaks, does "strain plus charge" actually explain
   what I measured, pixel by pixel?
 - Can I trade some resolution for smaller error bars if the fields are
   smooth, and fill the pixels whose fits failed?
-- How do I measure the response numbers on my own instrument, and how
-  should I plan that measurement?
+- How do I measure the response numbers on my own instrument, even
+  when the starting strain and charge of my sample are unknown, and
+  how should I plan that measurement?
 - How much of my final error bar comes from that calibration, with two
   peaks or more?
 - What if laser heating also shifts the peaks?
@@ -143,7 +145,7 @@ Units and signs:
 ## Examples
 
 Each example below runs as written, and the output shown is what it
-printed with ramansep 0.12.0. Unless a value is said to come from a
+printed with ramansep 0.13.0. Unless a value is said to come from a
 cited source, it is an illustrative value chosen for the example. The
 repository also has a longer demo, `examples/synthetic_map.py`, that
 inverts a noisy synthetic 128 x 128 map and plots it with matplotlib.
@@ -268,6 +270,7 @@ strain at the broken pixel: nan
 The map file is plain CSV with the header `row,col,wavenumber_cm1,counts`
 (0-based pixel indices, one shared wavenumber axis). A single spectrum
 uses `wavenumber_cm1,counts` (`save_spectrum_csv`, `load_spectrum_csv`).
+To read the plain text tables that instruments export, see example 16.
 `fit_map` fits both peaks at every pixel. A pixel is masked (NaN in all
 four output maps, `False` in `fits.ok`) when its counts are not finite,
 a fit stops with an error or does not converge, a fitted centre ends
@@ -439,6 +442,10 @@ stated errors agree. Without `sigmas`, the error bars are estimated
 from the scatter of the fit, which needs at least 3 reference points.
 A sweep that changes strain only (or strain and charge in fixed
 proportion) cannot tell the two lever arms apart, so it is refused.
+This fit assumes the shifts are measured from the true pristine
+frequencies and that strain and density are known in absolute terms.
+If they are known only relative to the starting state of the sample,
+use `fit_offset=True` (example 17).
 `cal.K` of a calibration with three or more modes goes straight into
 `MultiModeModel`.
 
@@ -828,6 +835,138 @@ check it against a direct numerical derivative. The chi-square check
 (`chi2_map`, `p_value`) is the one of `MultiModeModel`, which treats the
 lever arms as exact.
 
+### 16. Reading a map exported by the instrument
+
+```python
+import os, tempfile
+import numpy as np
+import ramansep as rs
+from ramansep import lorentzian
+
+# Write an illustrative 3 x 4 map the way mapping software often exports
+# it: tab-separated "x y wavenumber counts", stage positions in
+# micrometers, a serpentine scan, and the wavenumber running high to low.
+rng = np.random.default_rng(2)
+x_um = np.array([0.0, 0.5, 1.0, 1.5])
+y_um = np.array([10.0, 10.5, 11.0])
+wn = np.linspace(480.0, 380.0, 401)
+path = os.path.join(tempfile.mkdtemp(), "map_export.txt")
+with open(path, "w") as fh:
+    fh.write("#X\t#Y\t#Wave\t#Intensity\n")
+    for i, y in enumerate(y_um):
+        for x in (x_um if i % 2 == 0 else x_um[::-1]):
+            counts = (lorentzian(wn, 404.7 + 0.4 * x, 3.0, 800.0, 50.0)
+                      + lorentzian(wn, 452.0, 4.0, 500.0, 0.0)
+                      + rng.normal(0.0, 3.0, wn.size))
+            for w, c in zip(wn, counts):
+                fh.write(f"{x}\t{y}\t{w:.2f}\t{c:.1f}\n")
+
+wavenumber, cube, xs, ys = rs.load_map_table(path)
+print("cube:", cube.shape, " axis:", wavenumber[0], "to", wavenumber[-1], "cm^-1")
+print("x (um):", xs, " y (um):", ys)
+fits = rs.fit_map(wavenumber, cube, (395, 415), (440, 465), ref1=404.7, ref2=452.0)
+print("A'1 shift at y = 10 um (cm^-1):", " ".join(f"{v:+.2f}" for v in fits.dw1[0]))
+
+with open(path) as fh:                           # a scan that stopped early
+    lines = fh.readlines()
+with open(path, "w") as fh:
+    fh.writelines(lines[:-401])
+try:
+    rs.load_map_table(path)
+except ValueError as err:
+    print("refused:", str(err).split(";")[0])
+```
+
+```
+cube: (3, 4, 401)  axis: 380.0 to 480.0 cm^-1
+x (um): [0.  0.5 1.  1.5]  y (um): [10.  10.5 11. ]
+A'1 shift at y = 10 um (cm^-1): -0.00 +0.20 +0.40 +0.60
+refused: the stage positions do not form a complete rectangular grid: 1 of the 3 x 4 combinations of distinct y and x values are missing (first: x = 1.5, y = 11.0)
+```
+
+Mapping software rarely writes the CSV layout of example 3. A common
+plain-text export has four columns, the stage position x, the stage
+position y, the wavenumber and the counts, with one line per pixel and
+spectral point. `load_map_table` reads such a file in any line order
+(raster or serpentine scans) and with the wavenumber running in either
+direction. It rebuilds the pixel grid from the stage positions:
+`cube[i, j]` is the spectrum at `x[j]`, `y[i]`, and both position
+arrays increase. Columns may be separated by tabs, spaces or commas.
+Lines starting with `#` and one text header line are skipped. If your
+export has its columns in another order, say which with `usecols`.
+A scan that is not a complete rectangle (here, one stopped before the
+last pixel), a pixel with its own wavenumber axis, or a repeated point
+is refused rather than padded or interpolated. Stage positions that
+differ only in the last digits can be merged with `decimals=`.
+`load_spectrum_table` reads a single two-column spectrum the same
+way. Check that your export matches this layout before relying on it;
+the package does not read vendor binary formats.
+
+### 17. Calibrating when the starting state is unknown
+
+```python
+import numpy as np
+import ramansep as rs
+
+# A stage + gate calibration (illustrative). Strain (%) and electron
+# density (1e13 cm^-2) are known only relative to the starting state, and
+# the peak positions are absolute frequencies (cm^-1).
+eps = np.array([0.0, 0.2, 0.4, 0.6, 0.0, 0.3, 0.1])
+rho = np.array([0.0, 0.0, 0.0, 0.1, 0.8, 0.5, 1.1])
+K_true = np.array([[-5.1, -2.2], [-20.9, 0.0]])
+start = np.array([403.6, 451.1])        # the starting state: unknown in practice
+rng = np.random.default_rng(2)
+freq = start + np.column_stack([eps, rho]) @ K_true.T + rng.normal(0, 0.1, (7, 2))
+
+np.set_printoptions(precision=2, suppress=True)
+old = rs.calibrate_lever_arms(eps, rho, freq - [403.0, 452.0], sigmas=0.1)
+print("through zero, shifts from 403.0 and 452.0 cm^-1:\n", old.K)
+print("  chi2 / dof:", old.chi2 / old.chi2_dof)
+new = rs.calibrate_lever_arms(eps, rho, freq, sigmas=0.1, fit_offset=True)
+print("with a fitted offset per mode:\n", new.K)
+print("  error bars:\n", new.K_sigma)
+print("  chi2 / dof:", new.chi2 / new.chi2_dof)
+print("  starting frequencies:", new.offset, "+/-", new.offset_sigma)
+print("planned error bars:", rs.plan_calibration(eps, rho, 0.1, fit_offset=True)["K_sigma"])
+```
+
+```
+through zero, shifts from 403.0 and 452.0 cm^-1:
+ [[ -3.8   -1.67]
+ [-22.62  -0.87]]
+  chi2 / dof: [13.5  34.69]
+with a fitted offset per mode:
+ [[ -5.05  -2.23]
+ [-20.57   0.03]]
+  error bars:
+ [[0.2 0.1]
+ [0.2 0.1]]
+  chi2 / dof: [0.95 1.35]
+  starting frequencies: [403.63 450.98] +/- [0.08 0.08]
+planned error bars: [0.2 0.1]
+```
+
+In a real calibration, the stage reports strain relative to where it
+started and the gate reports charge relative to the starting voltage.
+The starting strain and doping of the flake, and so the pristine
+frequencies, are unknown. The fit of example 6 goes through zero and
+needs them. Here the shifts were measured from guessed references
+(403.0 and 452.0 cm^-1, both off), and the lever arms come out wrong
+by up to 1.7 cm^-1 per percent. The fit itself says so: chi2 / dof is
+far above 1. With `fit_offset=True` each mode gets one more free
+parameter, a constant offset (the shift at the calibration's own
+zero). The lever arms then depend only on how the shifts change
+between the reference states, and they come out within two error
+bars of the true values, with chi2 / dof near 1. The offset is reported with its error
+bar, but it is not the pristine frequency, and the inversions do not
+use it. The error bars of the lever arms already include the
+uncertainty of the offset, so `separation_with_calibration` and
+`multimode_with_calibration` take the result as it is. The price of
+the extra parameter: the reference states must not lie on any one
+straight line (not only a line through zero), and the fit needs one
+more reference point. `plan_calibration` and `repeats_for_sigma` take
+`fit_offset=True` too, so the error bars can be planned in advance.
+
 ## What is in the package
 
 Every name below is exported from `ramansep` (its `__all__`). Each
@@ -886,15 +1025,22 @@ and conventions.
   (example 12).
 - `load_spectrum_csv`, `save_spectrum_csv`, `load_map_csv`,
   `save_map_csv` -- the documented CSV formats of example 3.
+- `load_spectrum_table(path, usecols, delimiter)`,
+  `load_map_table(path, usecols, delimiter, decimals)`: plain text
+  tables as instruments export them, with stage positions for maps
+  (example 16, new in 0.13.0).
 
 **Calibration**
 
-- `calibrate_lever_arms(strain, density, shifts, sigmas, mode_names)`,
-  `CalibrationResult` (`K`, `K_sigma`, `cov`, `chi2`, `chi2_dof`,
-  `n_points`, `condition_number`, `mode_names`, and
-  `coefficients(reference)` for two modes).
+- `calibrate_lever_arms(strain, density, shifts, sigmas, mode_names,
+  fit_offset=False)`, `CalibrationResult` (`K`, `K_sigma`, `cov`,
+  `chi2`, `chi2_dof`, `n_points`, `condition_number`, `mode_names`,
+  `coefficients(reference)` for two modes, and, with
+  `fit_offset=True`, `offset`, `offset_sigma` and `full_cov`; example
+  17, new in 0.13.0).
 - `plan_calibration`, `design_references`, `repeats_for_sigma` --
-  planning, example 7.
+  planning, example 7 (`plan_calibration` and `repeats_for_sigma` also
+  take `fit_offset=True`).
 - `separation_with_calibration` -- example 8;
   `multimode_with_calibration` -- the same for three or more modes,
   example 15.
@@ -986,24 +1132,36 @@ docstring points to S. Sahoo et al., J. Phys. Chem. C 117, 9042
 - `bayesian_map_inversion` gets NaN or infinite shifts or error bars
   without `fill_masked=True`, missing values with a smoothness weight
   of zero, so little data that the unmasked shifts cannot fix both
-  fields, per-pixel error bars of the wrong shape, a negative
-  smoothness weight, or asks for exact error bars above `max_dense`
-  unknowns;
+  fields, per-pixel error bars of the wrong shape, a negative, NaN or
+  infinite smoothness weight (NaN and infinity are refused since
+  0.13.0), or asks for exact error bars above `max_dense` unknowns;
+- `MultiModeModel` or `ThreeCauseModel` gets a number of error bars
+  other than one per mode, or shift maps of different shapes (since
+  0.13.0 the message says which);
 - a peak fit gets too few points (5 for a Lorentzian with a constant
   baseline, 6 with a linear baseline or for a Voigt), non-finite data,
   an unknown `baseline` name, or a non-positive starting width;
 - the two fit windows are reversed, overlap, or hold too few points,
-  or the `baseline` name is unknown (`fit_two_modes`, and `fit_map`
-  before fitting any pixel); `fit_map` also refuses a wavenumber axis
+  the `baseline` name is unknown, or a reference frequency `ref1`,
+  `ref2` is NaN or infinite (`fit_two_modes`, and `fit_map` before
+  fitting any pixel; the reference check is new in 0.13.0); `fit_map` also refuses a wavenumber axis
   that contains NaN or infinity, a `min_snr` that is not positive, or
   a `fwhm_range` that is not (lo, hi) with 0 <= lo < hi;
 - a CSV file has the wrong header or field count, a wavenumber axis
-  that is not strictly increasing, a pixel grid with holes, or a pixel
-  with its own wavenumber axis;
+  that is not strictly increasing or contains NaN or infinity, a pixel
+  grid with holes, or a pixel with its own wavenumber axis;
+- a text table (`load_spectrum_table`, `load_map_table`) has lines
+  without the requested numeric columns, a NaN or infinite wavenumber
+  or stage position, a wavenumber axis that repeats a value or is not
+  monotonic, stage positions that do not form a complete rectangle, or
+  a pixel with its own wavenumber axis or number of points;
 - calibration reference states lie on one line through the origin of
   the (strain, density) plane (the two lever arms cannot be told
   apart), there are fewer than 2 of them, or fewer than 3 when no
-  `sigmas` are given;
+  `sigmas` are given; with `fit_offset=True`, the states lie on any
+  one straight line, or there are fewer than 4 of them without
+  `sigmas`; `sigmas` whose shape fits neither the points nor the
+  modes;
 - `CalibrationResult.coefficients` is asked to package other than two
   modes, or `separation_with_calibration` gets such a calibration
   (`multimode_with_calibration` takes any number);
@@ -1012,7 +1170,7 @@ docstring points to S. Sahoo et al., J. Phys. Chem. C 117, 9042
 
 ## How the results are checked
 
-96 automated tests run on every push and pull request, on Python 3.9,
+114 automated tests run on every push and pull request, on Python 3.9,
 3.10, 3.11, 3.12, 3.13 and 3.14, and once more on Python 3.9 with the
 oldest NumPy (1.22.0) and SciPy (1.8.0) the package allows. The
 numerical checks compare the package with an independent calculation,
@@ -1162,7 +1320,68 @@ parts, NumPy's own defaults apply, and these are listed too:
   negative, NaN or infinite sigma and a `K` that is not (m, 2) in
   `compare_mode_sets`.
 
+**New in 0.13.0** (`tests/test_v013.py`, 18 tests)
+
+- Each fix below has a test that fails on 0.12.0 and passes now.
+- Text tables: files are written line by line from arrays built
+  independently in the test (a serpentine scan with the wavenumber
+  running high to low; a comma-separated file with a text header and
+  the columns in another order). `load_map_table` returns those arrays
+  exactly (bit for bit), and `fit_map` on the loaded cube equals
+  `fit_map` on the original cube bit for bit. Each refusal fires.
+  `load_spectrum_table` reverses a descending export exactly.
+- `calibrate_lever_arms(..., fit_offset=True)`: noise-free arms and
+  offsets are recovered to 1e-12. With per-point error bars, the arms
+  and offsets agree with an independent `numpy.linalg.lstsq` solve to
+  1e-10, and the covariance agrees to a relative 1e-10 with the closed
+  form of the Frisch-Waugh-Lovell theorem (arms from the
+  weighted-centered design; offset variance 1/sum(w) plus the
+  propagated mean state). Without error bars the covariance equals the
+  residual-variance formula with n - 3 degrees of freedom (relative
+  1e-9). The through-origin fit of offset data is off by exactly the
+  closed-form projection of the offsets (to 1e-12), more than 1 cm^-1
+  per percent here; the offset fit removes it. Over 400 seeded
+  calibrations the scatter of the arms and offsets matches the
+  reported error bars within 15 %, and the mean chi-square is within
+  0.4 of its 4 degrees of freedom. The calibration part of
+  `separation_with_calibration` matches 400 seeded offset calibrations
+  within 20 %. `plan_calibration(..., fit_offset=True)` equals the
+  reported covariance to 1e-15, and repeating the design r times
+  divides it by r (relative 1e-12).
+
 ## Corrections in earlier versions
+
+**0.13.0 fixed three silent failures** (before and after values from
+running 0.12.0 and 0.13.0 on the same input).
+
+- `load_spectrum_csv` returned a wavenumber axis containing NaN or
+  infinity, although it promises to refuse an axis that is not
+  strictly increasing: a file with the axis 400, nan, 402, 403 loaded
+  as `[400, nan, 402, 403]`. It is now refused. (`load_map_csv`
+  refused such an axis already, but with the message that pixel
+  (0, 0) "carries a different wavenumber axis than pixel (0, 0)"; the
+  message now says what is wrong.)
+- `fit_map` with a NaN reference frequency reported every pixel as
+  fitted (`ok` True at all pixels, `n_masked` 0) while every shift was
+  NaN, and `fit_two_modes` returned a NaN shift. Both now refuse a
+  reference that is not a finite number.
+- `bayesian_map_inversion` with a NaN or infinite smoothness weight
+  returned all-NaN maps with only SciPy's "Matrix is exactly singular"
+  warning. It now refuses such a weight and suggests a large finite
+  one for the fully pooled limit.
+
+**Documentation corrections in 0.13.0.** The docstring of
+`MultiModeResult` said that `condition_number` is that of the weighted
+design matrix when the error bars are scalars; the code has always
+returned the condition number of the unweighted lever-arm matrix (the
+value is unchanged; the docstring now says so). The docstring of
+`fit_voigt` said its default start splits the width evenly between the
+Gaussian and Lorentzian parts; it starts with a Gaussian FWHM equal to
+the estimated width and a Lorentzian FWHM of half of it. The
+`fitting` module docstring said the tests recover amplitude and
+baseline to 1e-8; they check 1e-6. `SeparationResult.density` was
+documented as cm^-2 by default; it is in the unit of the lever arms
+(1e13 cm^-2 for the MoS2 sets).
 
 **0.12.0 fixed three silent or misleading behaviours.**
 
@@ -1244,6 +1463,12 @@ The full history is in [CHANGELOG.md](CHANGELOG.md).
 - `min_snr` and `fwhm_range` in `fit_map` are off by default and their
   values are your choice; the package does not decide what counts as
   "no peak" for your data.
+- `load_map_table` groups stage positions by exact value (or after
+  rounding with `decimals`) and needs one shared wavenumber axis; it
+  does not resample spectra onto a common axis, and it does not read
+  vendor binary formats or decimal commas. `design_references` plans
+  for the through-origin calibration only; check a set chosen for
+  `fit_offset=True` with `plan_calibration(..., fit_offset=True)`.
 - `separation_with_calibration` and `multimode_with_calibration` are
   first-order in the calibration errors. The calibration part is
   common to all pixels, so it does not average down over a map. The
