@@ -27,8 +27,9 @@ that caveat is documented rather than hidden.
 Exact facts the test suite asserts, rather than states:
 
 * The analytic Jacobian matches finite differences on every parameter.
-* On noiseless synthetic Lorentzians the fit recovers center, width,
-  amplitude and baseline to 1e-8 from automatic starting values.
+* On noiseless synthetic Lorentzians the fit recovers center and width
+  to 1e-8, amplitude and baseline to 1e-6, from automatic starting
+  values.
 * On seeded noisy spectra the center error is compatible with the
   reported center uncertainty.
 * A full round trip (strain/density maps -> forward shifts -> synthetic
@@ -279,8 +280,20 @@ def _check_two_mode_setup(x, window1, window2, baseline):
     return w1, w2
 
 
-def fit_two_modes(x, y, window1, window2, ref1, ref2,
-                  baseline="constant", joint=False):
+def _check_references(ref1, ref2):
+    """Refuse reference frequencies that are not finite numbers. A NaN
+    reference turns every shift into NaN; `fit_map` used to report
+    such pixels as fitted (`ok` True) before v0.13."""
+    r1, r2 = float(ref1), float(ref2)
+    if not (np.isfinite(r1) and np.isfinite(r2)):
+        raise ValueError("reference frequencies ref1 and ref2 must be "
+                         f"finite numbers (cm^-1); got {ref1!r}, {ref2!r}")
+    return r1, r2
+
+
+def fit_two_modes(x, y, window1, window2, ref1: float, ref2: float,
+                  baseline: str = "constant", joint: bool = False
+                  ) -> tuple[float, float, float, float, PeakFit, PeakFit]:
     """Fit both modes of a spectrum and return inversion-ready shifts.
 
     x, y : the spectrum (wavenumber axis and counts).
@@ -288,7 +301,8 @@ def fit_two_modes(x, y, window1, window2, ref1, ref2,
         windows must not overlap: a shared shoulder would be counted
         twice, once per fit.
     ref1, ref2 : pristine-material reference frequencies of the two
-        modes (cm^-1), the zero points of the shifts.
+        modes (cm^-1), the zero points of the shifts. Must be finite
+        (refused otherwise since v0.13).
     baseline : "constant" or "linear", passed to `fit_lorentzian`
         (new in v0.8; use "linear" for a sloped fluorescence
         background).
@@ -314,6 +328,7 @@ def fit_two_modes(x, y, window1, window2, ref1, ref2,
     x = np.asarray(x, dtype=float).ravel()
     y = np.asarray(y, dtype=float).ravel()
     w1, w2 = _check_two_mode_setup(x, window1, window2, baseline)
+    ref1, ref2 = _check_references(ref1, ref2)
     fits = []
     for lo, hi in (w1, w2):
         m = (x >= lo) & (x <= hi)
@@ -526,8 +541,9 @@ def fit_voigt(x, y, p0=None, max_iter=300, tol=1e-12) -> VoigtFit:
     the tests, like the Lorentzian fitter's).
 
     p0 : optional (center, sigma, gamma, amplitude, offset); by default
-    seeded from the Lorentzian-style guess with the width split evenly
-    between the Gaussian and Lorentzian parts.
+    seeded from the Lorentzian-style guess of the full width G0: a
+    Gaussian part of FWHM G0 (sigma = G0 / (2 sqrt(2 ln 2))) and a
+    Lorentzian part of FWHM G0 / 2 (gamma = G0 / 4).
     """
     x = np.asarray(x, dtype=float).ravel()
     y = np.asarray(y, dtype=float).ravel()

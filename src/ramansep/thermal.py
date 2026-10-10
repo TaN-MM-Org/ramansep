@@ -44,6 +44,8 @@ import dataclasses
 import numpy as np
 from scipy.stats import chi2
 
+from .multimode import _stack_shifts, _stack_sigmas
+
 __all__ = ["ThreeCauseModel", "ThreeCauseResult", "HC_OVER_KB_CM_K",
            "anti_stokes_ratio", "calibrate_anti_stokes",
            "temperature_from_anti_stokes"]
@@ -132,16 +134,12 @@ class ThreeCauseModel:
         does not affect the other pixels (since v0.12; before, a NaN
         sigma made the whole call fail).
         """
-        S = np.stack([np.asarray(s, dtype=float) for s in shifts])
-        if S.shape[0] != self.m:
-            raise ValueError(f"expected {self.m} shift maps, got {S.shape[0]}")
+        S = _stack_shifts(shifts, self.m)
         map_shape = S.shape[1:]
         if sigmas is None:
             sig = np.ones_like(S)
         else:
-            sig = np.stack([np.broadcast_to(np.asarray(s, dtype=float),
-                                            map_shape).copy()
-                            for s in sigmas])
+            sig = _stack_sigmas(sigmas, self.m, map_shape)
             if np.any(sig <= 0):
                 raise ValueError("sigmas must be positive")
         P = int(np.prod(map_shape)) if map_shape else 1

@@ -21,15 +21,15 @@ from .lab import (design_references, plan_calibration,
                   repeats_for_sigma)
 from .propagate import (multimode_with_calibration,
                         separation_with_calibration)
-from .mapio import (load_map_csv, load_spectrum_csv, save_map_csv,
-                    save_spectrum_csv)
+from .mapio import (load_map_csv, load_map_table, load_spectrum_csv,
+                    load_spectrum_table, save_map_csv, save_spectrum_csv)
 from .materials import (ModeCoefficients, graphene_g_2d_lee2012,
                         mos2_a1_2la, mos2_eprime_a1, synthetic_demo)
 from .thermal import (HC_OVER_KB_CM_K, ThreeCauseModel, ThreeCauseResult,
                       anti_stokes_ratio, calibrate_anti_stokes,
                       temperature_from_anti_stokes)
 
-__version__ = "0.12.0"
+__version__ = "0.13.0"
 __all__ = ["SeparationModel", "SeparationResult", "ModeCoefficients",
            "MultiModeModel", "MultiModeResult", "compare_mode_sets",
            "ThreeCauseModel", "ThreeCauseResult", "HC_OVER_KB_CM_K",
@@ -40,6 +40,7 @@ __all__ = ["SeparationModel", "SeparationResult", "ModeCoefficients",
            "MapFitResult", "fit_map", "MASK_REASONS",
            "load_spectrum_csv", "save_spectrum_csv",
            "load_map_csv", "save_map_csv",
+           "load_spectrum_table", "load_map_table",
            "synthetic_demo", "mos2_a1_2la", "mos2_eprime_a1",
            "graphene_g_2d_lee2012",
            "PeakFit", "fit_lorentzian", "fit_two_modes", "lorentzian",

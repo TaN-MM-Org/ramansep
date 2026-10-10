@@ -29,6 +29,11 @@ modes and the weighted least-squares estimate of `MultiModeModel`,
 using the exact derivative of that estimate (which, unlike the
 two-mode inverse, involves the residual; see its docstring).
 
+A calibration fitted with `fit_offset=True` (since v0.13) works
+unchanged: its `cov` is the covariance of the lever arms with the
+uncertainty of the fitted offsets already included (the offsets
+themselves are not used by the inversion).
+
 Honest limits, stated plainly: the propagation is first order in the
 calibration errors (exact in the limit of a well-determined
 calibration, the regime a calibration is for). The calibration part

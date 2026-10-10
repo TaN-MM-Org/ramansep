@@ -36,7 +36,8 @@ import dataclasses
 
 import numpy as np
 
-from .fitting import _check_two_mode_setup, fit_two_modes
+from .fitting import (_check_references, _check_two_mode_setup,
+                      fit_two_modes)
 
 __all__ = ["MapFitResult", "fit_map", "MASK_REASONS"]
 
@@ -79,9 +80,10 @@ class MapFitResult:
     reason: np.ndarray | None = None
 
 
-def fit_map(wavenumber, cube, window1, window2, ref1, ref2,
-            baseline="constant", *, joint=False, min_snr=None,
-            fwhm_range=None) -> MapFitResult:
+def fit_map(wavenumber, cube, window1, window2, ref1: float, ref2: float,
+            baseline: str = "constant", *, joint: bool = False,
+            min_snr: float | None = None,
+            fwhm_range: tuple[float, float] | None = None) -> MapFitResult:
     """Fit both modes at every pixel of a hyperspectral cube.
 
     wavenumber : (L,) shared axis (cm^-1).
@@ -111,9 +113,10 @@ def fit_map(wavenumber, cube, window1, window2, ref1, ref2,
     Raises ValueError, before any pixel is fitted, for a cube whose
     shape does not match the axis, a non-finite axis, a fit
     configuration that `fit_two_modes` refuses (baseline name,
-    reversed or overlapping windows, fewer than 5 points -- 6 for
-    the linear baseline -- in a window), a non-positive `min_snr`, or
-    a `fwhm_range` that is not (lo, hi) with 0 <= lo < hi.
+    reversed or overlapping windows, fewer than 5 points in a window
+    (6 for the linear baseline), a reference frequency that is not
+    finite), a non-positive `min_snr`, or a `fwhm_range` that is not
+    (lo, hi) with 0 <= lo < hi.
     """
     x = np.asarray(wavenumber, dtype=float).ravel()
     c = np.asarray(cube, dtype=float)
@@ -126,6 +129,9 @@ def fit_map(wavenumber, cube, window1, window2, ref1, ref2,
     # windows, too few points in a window) are the caller's, not the
     # pixels': refuse them once here instead of masking every pixel
     _check_two_mode_setup(x, window1, window2, baseline)
+    # a NaN reference made every shift NaN while `ok` stayed True
+    # (before v0.13); refuse it once, like the other settings
+    _check_references(ref1, ref2)
     if min_snr is not None:
         min_snr = float(min_snr)
         if not (np.isfinite(min_snr) and min_snr > 0.0):

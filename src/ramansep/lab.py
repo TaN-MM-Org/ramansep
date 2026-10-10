@@ -52,13 +52,20 @@ def _weights(sigmas, n):
     return 1.0 / sig
 
 
-def plan_calibration(strain, density, sigmas=1.0):
+def plan_calibration(strain, density, sigmas=1.0, *,
+                     fit_offset: bool = False) -> dict:
     """Predicted lever-arm uncertainties for a planned reference set.
 
     strain, density : (n,) the reference states you intend to prepare.
     sigmas : expected 1-sigma shift uncertainty per point (scalar or
         (n,), cm^-1), e.g. the center error your peak fitter typically
         reports.
+    fit_offset : plan for `calibrate_lever_arms(..., fit_offset=True)`
+        (new in v0.13): `cov` is then the lever-arm block of the 3 x 3
+        covariance of (strain arm, density arm, offset), the design is
+        identifiable only if the states are not on one straight line,
+        and `condition_number` is that of the centered design, as the
+        calibration reports them.
 
     Returns dict(identifiable, condition_number, cov, K_sigma):
     `cov` is the exact 2x2 covariance `calibrate_lever_arms` will
@@ -70,6 +77,8 @@ def plan_calibration(strain, density, sigmas=1.0):
     """
     X = _design_matrix(strain, density)
     w = _weights(sigmas, X.shape[0])
+    if fit_offset:
+        return _plan_with_offset(X, w)
     Xw = X * w[:, None]
     A = Xw.T @ Xw
     sv = np.linalg.svd(X, compute_uv=False)
@@ -84,8 +93,8 @@ def plan_calibration(strain, density, sigmas=1.0):
             "cov": cov, "K_sigma": np.sqrt(np.diag(cov))}
 
 
-def design_references(strain_candidates, density_candidates, n_pick,
-                      sigmas=1.0):
+def design_references(strain_candidates, density_candidates, n_pick: int,
+                      sigmas=1.0) -> dict:
     """Pick the most informative reference states to prepare.
 
     From the candidate (strain, density) points -- the states your
@@ -94,6 +103,9 @@ def design_references(strain_candidates, density_candidates, n_pick,
     information matrix (equivalently: shrinks the joint lever-arm
     uncertainty fastest). Transparent and monotone, but a
     good-practice heuristic, not a proof of the globally best subset.
+    It plans for the through-origin calibration (the default of
+    `calibrate_lever_arms`); for `fit_offset=True`, check a chosen set
+    with `plan_calibration(..., fit_offset=True)`.
 
     Returns dict(indices, condition_number, cov, K_sigma) with the
     chosen candidate indices in pick order and the planned covariance
@@ -146,7 +158,24 @@ def design_references(strain_candidates, density_candidates, n_pick,
             "K_sigma": sub["K_sigma"]}
 
 
-def repeats_for_sigma(target_K_sigma, strain, density, sigmas=1.0):
+def _plan_with_offset(X, w):
+    """`plan_calibration(..., fit_offset=True)`: the arms block of
+    (X1^T W X1)^-1 with X1 = [strain, density, 1]."""
+    n = X.shape[0]
+    sv = np.linalg.svd(X - X.mean(axis=0), compute_uv=False)
+    cond = float(sv[0] / sv[-1]) if sv[-1] > 0 else np.inf
+    identifiable = bool(n >= 3 and sv[0] > 0 and sv[-1] > 1e-12 * sv[0])
+    if not identifiable:
+        return {"identifiable": False, "condition_number": cond,
+                "cov": None, "K_sigma": None}
+    X1w = np.column_stack([X, np.ones(n)]) * w[:, None]
+    cov = np.linalg.inv(X1w.T @ X1w)[:2, :2]
+    return {"identifiable": True, "condition_number": cond,
+            "cov": cov, "K_sigma": np.sqrt(np.diag(cov))}
+
+
+def repeats_for_sigma(target_K_sigma: float, strain, density, sigmas=1.0,
+                      *, fit_offset: bool = False) -> tuple[int, dict]:
     """How many times must the reference set be repeated?
 
     Repeating the same reference design r times scales the covariance
@@ -158,11 +187,15 @@ def repeats_for_sigma(target_K_sigma, strain, density, sigmas=1.0):
 
     Returns (r, plan) where `plan` is the `plan_calibration` result
     for the repeated design. Refuses a non-identifiable base design.
+    `fit_offset` plans for `calibrate_lever_arms(..., fit_offset=True)`
+    (new in v0.13); the 1/r scaling holds for that model too, because
+    r copies of the design have r times its information matrix.
     """
     t = float(target_K_sigma)
     if not (np.isfinite(t) and t > 0.0):
         raise ValueError("target_K_sigma must be positive")
-    base = plan_calibration(strain, density, sigmas)
+    base = plan_calibration(strain, density, sigmas,
+                            fit_offset=fit_offset)
     if not base["identifiable"]:
         raise ValueError(
             "the reference design is collinear in the (strain, "
@@ -174,5 +207,5 @@ def repeats_for_sigma(target_K_sigma, strain, density, sigmas=1.0):
     n = X.shape[0]
     sig = np.broadcast_to(np.asarray(sigmas, dtype=float), (n,))
     plan = plan_calibration(np.tile(X[:, 0], r), np.tile(X[:, 1], r),
-                            np.tile(sig, r))
+                            np.tile(sig, r), fit_offset=fit_offset)
     return r, plan

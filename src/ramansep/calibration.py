@@ -50,6 +50,33 @@ reported sigmas; degenerate reference sets raise; and a full round trip
 -- calibrate on synthetic references, build the ModeCoefficients, and
 run the package's own inversion on forward-generated maps -- returns
 the input maps.
+
+Unknown starting state (new in v0.13): with `fit_offset=True` each
+mode's fit gets a free constant,
+
+    dw_m(j) = c_m + k_m_strain * strain_j + k_m_density * density_j,
+
+so the strain and density of the reference states need to be known
+only RELATIVE to the starting state (a stage reading, a change of gate
+charge), and the shifts may be measured from any fixed reference
+frequency, or be absolute peak positions. A real calibration is
+usually in exactly that situation: the flake starts with some built-in
+strain and doping that nobody knows. Forcing such data through zero
+biases the lever arms; the tests show the bias equals the closed-form
+projection of the offset onto the design, and that the offset fit
+removes it. The lever arms then come from the weighted-centered design
+(Frisch-Waugh-Lovell theorem: R. Frisch and F. V. Waugh, Econometrica
+1, 387 (1933); M. C. Lovell, J. Am. Stat. Assoc. 58, 993 (1963)), and
+the tests check the reported covariance against that closed form. The
+price is one more parameter per mode: the reference states must not
+lie on ANY straight line in the (strain, density) plane (not only a
+line through the origin), and the residual degrees of freedom are
+n - 3. The offset itself is a nuisance parameter: it is the shift at
+the calibration's own zero, not the pristine reference frequency, so
+it is reported but not used by the map inversions; `cov` holds the
+lever-arm covariance with the offset uncertainty already accounted
+for, which is what `separation_with_calibration` and
+`multimode_with_calibration` need.
 """
 from __future__ import annotations
 
@@ -70,7 +97,8 @@ class CalibrationResult:
     K_sigma : (m, 2) one-standard-deviation uncertainties.
     cov : (m, 2, 2) per-mode parameter covariance matrices.
     chi2, chi2_dof : per-mode weighted residual sum of squares and its
-        degrees of freedom (n - 2), when sigmas were provided; the
+        degrees of freedom (n - 2, or n - 3 with `fit_offset=True`),
+        when sigmas were provided; the
         chi2/dof ratio near 1 says the linear model and your stated
         sigmas are mutually consistent.  None when sigmas were not
         provided (the residuals then SET the error scale and cannot
@@ -78,8 +106,19 @@ class CalibrationResult:
     n_points : number of reference measurements used.
     condition_number : of the (unweighted) reference design; large
         values mean the reference states barely span the plane and the
-        arms, though identifiable, are poorly determined.
+        arms, though identifiable, are poorly determined. With
+        `fit_offset=True` it is that of the centered design (each column
+        minus its mean), since only the spread about the mean state
+        determines the arms then.
     mode_names : labels carried through to `coefficients`.
+    offset, offset_sigma : (m,) fitted per-mode offsets c_m (the shift
+        at zero strain and zero density in the calibration's own
+        coordinates, in the units of `shifts`) and their 1-sigma
+        uncertainties, when `fit_offset=True`; None otherwise (new in
+        v0.13).
+    full_cov : (m, 3, 3) per-mode covariance of (strain arm, density
+        arm, offset) when `fit_offset=True`; None otherwise. `cov` is
+        its upper-left 2 x 2 block.
     """
 
     K: np.ndarray
@@ -90,6 +129,9 @@ class CalibrationResult:
     n_points: int
     condition_number: float
     mode_names: list
+    offset: np.ndarray | None = None
+    offset_sigma: np.ndarray | None = None
+    full_cov: np.ndarray | None = None
 
     def coefficients(self, reference: str) -> ModeCoefficients:
         """Package a two-mode calibration as a ModeCoefficients.
@@ -115,7 +157,8 @@ class CalibrationResult:
 
 
 def calibrate_lever_arms(strain, density, shifts, sigmas=None,
-                         mode_names=None) -> CalibrationResult:
+                         mode_names=None, *,
+                         fit_offset: bool = False) -> CalibrationResult:
     """Fit the (m, 2) lever-arm matrix from reference measurements.
 
     Parameters
@@ -130,12 +173,23 @@ def calibrate_lever_arms(strain, density, shifts, sigmas=None,
         density) frequency, in cm^-1.  A single mode may be passed as
         (n,) and is treated as (n, 1).
     sigmas : optional (n, m), (m,) or scalar one-standard-deviation
-        shift uncertainties (from the peak fitter).  With sigmas the
+        shift uncertainties (from the peak fitter); for a single mode
+        passed as (n,), sigmas may also be (n,), one per point (new in
+        v0.13).  With sigmas the
         parameter covariance is the exact known-noise result and a
         per-mode chi2 model check is returned; without them the
         covariance is estimated from the residuals, which requires
         n >= 3.
     mode_names : optional length-m labels.
+    fit_offset : False (default, unchanged behavior) fits lines
+        through the origin, which needs the shifts measured from the
+        true pristine frequency and the strain and density known in
+        absolute terms. True (new in v0.13) fits one free offset per
+        mode as well, so strain and density need to be known only
+        relative to the starting state and the shifts may be taken from
+        any fixed reference (see the module docstring). Needs
+        reference states that do not lie on one straight line, n >= 3
+        with sigmas and n >= 4 without.
 
     Returns a :class:`CalibrationResult`; see its docstring.
 
@@ -144,12 +198,15 @@ def calibrate_lever_arms(strain, density, shifts, sigmas=None,
     ValueError : on shape mismatches, non-finite input, non-positive
         sigmas, fewer than 2 reference points, a rank-deficient
         reference design (collinear reference states -- the arms are
-        not identifiable), or sigmas absent with n < 3.
+        not identifiable), or sigmas absent with n < 3; with
+        `fit_offset=True`, reference states on any one straight line,
+        fewer than 3 points, or sigmas absent with n < 4.
     """
     eps = np.asarray(strain, dtype=float).ravel()
     rho = np.asarray(density, dtype=float).ravel()
     y = np.asarray(shifts, dtype=float)
-    if y.ndim == 1:
+    single = y.ndim == 1
+    if single:
         y = y[:, None]
     if y.ndim != 2 or eps.shape != rho.shape or y.shape[0] != eps.size:
         raise ValueError(
@@ -162,6 +219,9 @@ def calibrate_lever_arms(strain, density, shifts, sigmas=None,
             raise ValueError(f"{name} contains non-finite values")
     if n < 2:
         raise ValueError("need at least 2 reference points")
+    if fit_offset:
+        return _calibrate_with_offset(eps, rho, y, sigmas, mode_names,
+                                      single)
 
     X = np.column_stack([eps, rho])                      # (n, 2)
     # identifiability: the reference states must span the plane
@@ -186,10 +246,7 @@ def calibrate_lever_arms(strain, density, shifts, sigmas=None,
             )
         sig = None
     else:
-        sig = np.broadcast_to(np.asarray(sigmas, dtype=float),
-                              (n, m)).copy()
-        if not np.all(np.isfinite(sig)) or np.any(sig <= 0.0):
-            raise ValueError("sigmas must be finite and positive")
+        sig = _broadcast_sigmas(sigmas, n, m, single)
 
     K = np.empty((m, 2))
     K_sigma = np.empty((m, 2))
@@ -223,3 +280,88 @@ def calibrate_lever_arms(strain, density, shifts, sigmas=None,
         chi2_dof=(dof if sig is not None else None), n_points=n,
         condition_number=condition_number, mode_names=names,
     )
+
+
+def _broadcast_sigmas(sigmas, n, m, single):
+    """Shift sigmas as an (n, m) array: scalar, (m,) per mode, (n, m)
+    per point and mode, or (n,) per point for a single mode given as
+    (n,). Refuses other shapes and non-positive or non-finite values."""
+    s = np.asarray(sigmas, dtype=float)
+    if single and s.ndim == 1 and s.size == n:
+        s = s[:, None]
+    try:
+        sig = np.broadcast_to(s, (n, m)).copy()
+    except ValueError:
+        raise ValueError(
+            f"sigmas of shape {s.shape} do not fit {n} reference points "
+            f"and {m} modes; give a scalar, ({m},) per mode or ({n}, {m})"
+            " per point and mode") from None
+    if not np.all(np.isfinite(sig)) or np.any(sig <= 0.0):
+        raise ValueError("sigmas must be finite and positive")
+    return sig
+
+
+def _calibrate_with_offset(eps, rho, y, sigmas, mode_names, single):
+    """`calibrate_lever_arms(..., fit_offset=True)`: per mode, weighted
+    least squares on the design [strain, density, 1]."""
+    n, m = y.shape
+    X = np.column_stack([eps, rho])
+    Xc = X - X.mean(axis=0)
+    sv = np.linalg.svd(Xc, compute_uv=False)
+    if sv[0] == 0.0 or sv[-1] <= 1e-12 * sv[0]:
+        raise ValueError(
+            "with fit_offset=True the reference states must not lie on "
+            "one straight line in the (strain, density) plane (any "
+            "line, not only one through the origin): along a line, a "
+            "change of offset and a change of lever arms fit the data "
+            "equally well; add a reference point off that line")
+    if n < 3:                                    # pragma: no cover
+        raise ValueError("fit_offset=True needs at least 3 reference "
+                         "points")
+    if sigmas is None:
+        if n < 4:
+            raise ValueError(
+                "without shift sigmas, fit_offset=True needs n >= 4 "
+                "reference points (3 parameters per mode plus one "
+                "degree of freedom for the residual variance); provide "
+                "sigmas or more points")
+        sig = None
+    else:
+        sig = _broadcast_sigmas(sigmas, n, m, single)
+    X1 = np.column_stack([eps, rho, np.ones(n)])
+    dof = n - 3
+    K = np.empty((m, 2))
+    K_sigma = np.empty((m, 2))
+    cov = np.empty((m, 2, 2))
+    full = np.empty((m, 3, 3))
+    off = np.empty(m)
+    off_sigma = np.empty(m)
+    chi2 = np.empty(m) if sig is not None else None
+    for k in range(m):
+        w = np.ones(n) if sig is None else 1.0 / sig[:, k]
+        Xw = X1 * w[:, None]
+        yw = y[:, k] * w
+        A = Xw.T @ Xw
+        beta = np.linalg.solve(A, Xw.T @ yw)
+        r = yw - Xw @ beta
+        rss = float(r @ r)
+        C = np.linalg.inv(A)
+        if sig is not None:
+            chi2[k] = rss
+        else:
+            C = C * (rss / dof)
+        K[k] = beta[:2]
+        off[k] = beta[2]
+        full[k] = C
+        cov[k] = C[:2, :2]
+        K_sigma[k] = np.sqrt(np.diag(C)[:2])
+        off_sigma[k] = np.sqrt(C[2, 2])
+    names = (list(mode_names) if mode_names is not None
+             else [f"mode{i + 1}" for i in range(m)])
+    if len(names) != m:
+        raise ValueError(f"mode_names must have length {m}")
+    return CalibrationResult(
+        K=K, K_sigma=K_sigma, cov=cov, chi2=chi2,
+        chi2_dof=(dof if sig is not None else None), n_points=n,
+        condition_number=float(sv[0] / sv[-1]), mode_names=names,
+        offset=off, offset_sigma=off_sigma, full_cov=full)

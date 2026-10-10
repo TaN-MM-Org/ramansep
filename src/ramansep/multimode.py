@@ -33,6 +33,41 @@ import numpy as np
 from scipy.stats import chi2
 
 
+def _stack_sigmas(sigmas, m, map_shape):
+    """Stack one sigma (scalar or map) per mode into (m, *map_shape),
+    with a clear message when the count or the shapes do not fit."""
+    try:
+        n = len(sigmas)
+    except TypeError:
+        raise ValueError(f"sigmas must be a sequence of {m} values or "
+                         "maps, one per mode") from None
+    if n != m:
+        raise ValueError(f"expected {m} sigmas (one per mode), got {n}")
+    out = []
+    for k, s in enumerate(sigmas):
+        try:
+            out.append(np.broadcast_to(np.asarray(s, dtype=float),
+                                       map_shape).copy())
+        except ValueError:
+            raise ValueError(
+                f"sigma of mode {k + 1} has shape "
+                f"{np.shape(s)}, which does not broadcast to the map "
+                f"shape {map_shape}") from None
+    return np.stack(out)
+
+
+def _stack_shifts(shifts, m):
+    """Stack m shift maps into (m, *map_shape), refusing a wrong count
+    or maps of different shapes with a clear message."""
+    maps = [np.asarray(s, dtype=float) for s in shifts]
+    if len(maps) != m:
+        raise ValueError(f"expected {m} shift maps, got {len(maps)}")
+    if any(a.shape != maps[0].shape for a in maps):
+        raise ValueError("all shift maps must have the same shape; got "
+                         f"{[a.shape for a in maps]}")
+    return np.stack(maps)
+
+
 @dataclasses.dataclass
 class MultiModeResult:
     """Result of an m-mode generalized-least-squares separation.
@@ -44,8 +79,10 @@ class MultiModeResult:
     p_value: probability of a chi2 at least this large under the
         two-cause model; small values flag model violations.
     dof: residual degrees of freedom (m - 2).
-    condition_number: of the weighted design matrix (scalar weights) or
-        of the unweighted design (pixel-dependent weights).
+    condition_number: of the unweighted lever-arm matrix K, whatever
+        sigmas were given (the docstring before v0.13 said "of the
+        weighted design matrix" for scalar weights, which the code never
+        computed; the value itself is unchanged).
     """
 
     strain: np.ndarray
@@ -94,16 +131,12 @@ class MultiModeModel:
         which case chi2_map is still returned but calibrated only if the
         shift noise really is unit variance.
         """
-        S = np.stack([np.asarray(s, dtype=float) for s in shifts])
-        if S.shape[0] != self.m:
-            raise ValueError(f"expected {self.m} shift maps, got {S.shape[0]}")
+        S = _stack_shifts(shifts, self.m)
         map_shape = S.shape[1:]
         if sigmas is None:
             sig = np.ones_like(S)
         else:
-            sig = np.stack([np.broadcast_to(np.asarray(s, dtype=float),
-                                            map_shape).copy()
-                            for s in sigmas])
+            sig = _stack_sigmas(sigmas, self.m, map_shape)
             if np.any(sig <= 0):
                 raise ValueError("sigmas must be positive")
         # flatten pixels: (m, P)

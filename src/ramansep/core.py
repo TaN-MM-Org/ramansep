@@ -20,7 +20,8 @@ class SeparationResult:
         (percent biaxial strain unless your coefficients say otherwise).
     density : ndarray
         Carrier-density field, in the density unit of the coefficient
-        matrix (cm^-2 unless your coefficients say otherwise).
+        matrix (1e13 cm^-2 for the shipped MoS2 sets, a G-band shift in
+        cm^-1 for the graphene set; whatever your own coefficients use).
     strain_sigma, density_sigma : ndarray or None
         One-standard-deviation uncertainties propagated from the peak-shift
         uncertainties, if those were provided.
@@ -95,7 +96,8 @@ class SeparationModel:
         dw1 = np.asarray(dw1, dtype=float)
         dw2 = np.asarray(dw2, dtype=float)
         if dw1.shape != dw2.shape:
-            raise ValueError("the two shift maps must have the same shape")
+            raise ValueError("the two shift maps must have the same shape; "
+                             f"got {dw1.shape} and {dw2.shape}")
 
         strain = self.Kinv[0, 0] * dw1 + self.Kinv[0, 1] * dw2
         density = self.Kinv[1, 0] * dw1 + self.Kinv[1, 1] * dw2

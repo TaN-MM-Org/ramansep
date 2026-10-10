@@ -58,6 +58,15 @@ __all__ = ["BayesianMapResult", "bayesian_map_inversion"]
 
 @dataclasses.dataclass
 class BayesianMapResult:
+    """Result of `bayesian_map_inversion`.
+
+    strain, density : (H, W) maximum a posteriori maps, in the units of
+        the lever-arm matrix columns.
+    strain_sigma, density_sigma : (H, W) exact posterior standard
+        deviations when `posterior_sigma=True` was requested, else None.
+    lam_strain, lam_density : the smoothness weights used.
+    """
+
     strain: np.ndarray
     density: np.ndarray
     strain_sigma: np.ndarray | None
@@ -82,9 +91,11 @@ def _grid_laplacian(h, w):
     return spkron(Lh, speye(w)) + spkron(speye(h), Lw)
 
 
-def bayesian_map_inversion(K, shifts, sigmas, lam_strain, lam_density=None,
-                           posterior_sigma=False, max_dense=4096,
-                           fill_masked=False):
+def bayesian_map_inversion(K, shifts, sigmas, lam_strain: float,
+                           lam_density: float | None = None,
+                           posterior_sigma: bool = False,
+                           max_dense: int = 4096,
+                           fill_masked: bool = False) -> BayesianMapResult:
     """Joint MAP inversion of shift maps with spatial smoothness priors.
 
     K : (m, 2) lever-arm matrix of rank 2 (as in `MultiModeModel`);
@@ -94,8 +105,9 @@ def bayesian_map_inversion(K, shifts, sigmas, lam_strain, lam_density=None,
         the whole map; or (since v0.12) (m, H, W), one value per mode
         and pixel, e.g. the `sigma1`, `sigma2` maps of `fit_map`
         stacked. Must be positive where the shift is finite.
-    lam_strain, lam_density : smoothness weights (>= 0); lam_density
-        defaults to lam_strain. lam = 0 is exactly the per-pixel GLS.
+    lam_strain, lam_density : smoothness weights (finite, >= 0);
+        lam_density defaults to lam_strain. lam = 0 is exactly the
+        per-pixel GLS.
     posterior_sigma : also return exact per-pixel posterior sigmas
         (dense inverse; refused above ``max_dense`` unknowns rather
         than approximated silently).
@@ -138,6 +150,12 @@ def bayesian_map_inversion(K, shifts, sigmas, lam_strain, lam_density=None,
                          "(m, H, W) array")
     lam_s = float(lam_strain)
     lam_n = lam_s if lam_density is None else float(lam_density)
+    if not (np.isfinite(lam_s) and np.isfinite(lam_n)):
+        # before v0.13 a NaN or infinite weight gave all-NaN maps with
+        # only SciPy's "Matrix is exactly singular" warning
+        raise ValueError(
+            "smoothness weights must be finite; for the fully pooled "
+            "(spatially constant) limit use a large finite value")
     if lam_s < 0.0 or lam_n < 0.0:
         raise ValueError("smoothness weights must be non-negative")
 
