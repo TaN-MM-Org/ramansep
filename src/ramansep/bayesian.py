@@ -191,7 +191,15 @@ def bayesian_map_inversion(K, shifts, sigmas, lam_strain: float,
     s_flat = s0.reshape(m, npix)
     if n_missing:
         pooled = np.einsum("ki,kp,kj->ij", K, w_flat, K)
-        ev = np.linalg.eigvalsh(pooled)
+        # judged on the unit-free (correlation) form of the pooled
+        # information: before v0.14 the raw eigenvalue ratio was used,
+        # which refused any K whose strain and density columns differ in
+        # scale by about 1e6 (e.g. density in cm^-2) as "singular"
+        d = np.sqrt(np.diag(pooled))
+        if np.all(d > 0.0):
+            ev = np.linalg.eigvalsh(pooled / np.outer(d, d))
+        else:
+            ev = np.zeros(2)
         if not ev[0] > 1e-12 * ev[-1]:
             raise ValueError(
                 "the measured (unmasked) shifts do not determine both "

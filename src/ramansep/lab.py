@@ -30,6 +30,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from .calibration import _spans_plane
+
 __all__ = ["plan_calibration", "design_references",
            "repeats_for_sigma"]
 
@@ -83,8 +85,8 @@ def plan_calibration(strain, density, sigmas=1.0, *,
     A = Xw.T @ Xw
     sv = np.linalg.svd(X, compute_uv=False)
     cond = float(sv[0] / sv[-1]) if sv[-1] > 0 else np.inf
-    identifiable = bool(sv[0] > 0 and sv[-1] > 1e-12 * sv[0]
-                        and X.shape[0] >= 2)
+    # unit-free rank test, the one calibrate_lever_arms uses (v0.14)
+    identifiable = bool(_spans_plane(X) and X.shape[0] >= 2)
     if not identifiable:
         return {"identifiable": False, "condition_number": cond,
                 "cov": None, "K_sigma": None}
@@ -164,7 +166,7 @@ def _plan_with_offset(X, w):
     n = X.shape[0]
     sv = np.linalg.svd(X - X.mean(axis=0), compute_uv=False)
     cond = float(sv[0] / sv[-1]) if sv[-1] > 0 else np.inf
-    identifiable = bool(n >= 3 and sv[0] > 0 and sv[-1] > 1e-12 * sv[0])
+    identifiable = bool(n >= 3 and _spans_plane(X - X.mean(axis=0)))
     if not identifiable:
         return {"identifiable": False, "condition_number": cond,
                 "cov": None, "K_sigma": None}

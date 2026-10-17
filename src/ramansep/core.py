@@ -42,6 +42,25 @@ class SeparationResult:
     condition_number: float
 
 
+def _check_shift_correlation(shift_correlation, shape):
+    """The correlation of the two shift errors, broadcast to the map
+    shape; refuses values outside [-1, 1] and infinities (NaN passes as
+    a masked pixel)."""
+    try:
+        rho = np.broadcast_to(np.asarray(shift_correlation, dtype=float),
+                              shape)
+    except ValueError:
+        raise ValueError(
+            f"shift_correlation of shape {np.shape(shift_correlation)} "
+            f"does not broadcast to the map shape {shape}") from None
+    with np.errstate(invalid="ignore"):
+        bad = np.isinf(rho) | (np.abs(rho) > 1.0)
+    if np.any(bad):
+        raise ValueError("shift_correlation must lie in [-1, 1] (NaN "
+                         "marks a masked pixel)")
+    return rho
+
+
 class SeparationModel:
     """Invert two peak-shift maps into strain and carrier-density maps.
 
@@ -82,7 +101,8 @@ class SeparationModel:
             )
         self.Kinv = np.linalg.inv(self.K)
 
-    def invert(self, dw1, dw2, sigma1=None, sigma2=None) -> SeparationResult:
+    def invert(self, dw1, dw2, sigma1=None, sigma2=None,
+               shift_correlation=None) -> SeparationResult:
         """Invert peak-shift maps (any matching numpy shapes) pixelwise.
 
         dw1, dw2 : peak shifts of mode 1 and mode 2 (cm^-1), relative to the
@@ -92,6 +112,18 @@ class SeparationModel:
             not be negative (refused since v0.12; before, a negative
             sigma was squared away silently). NaN is allowed and marks
             a masked pixel, as `fit_map` produces.
+        shift_correlation : optional correlation coefficient of the two
+            shift errors, scalar or broadcastable to the map shape, in
+            [-1, 1] (new in v0.14). Two peaks fitted together
+            (`fit_two_modes(..., joint=True)`, `fit_map(..., joint=True)`)
+            have correlated centers; pass `fit1.center_correlation` or
+            `MapFitResult.shift_correlation` here. The covariance of
+            (strain, density) is then K^-1 S K^-T with the full shift
+            covariance S = [[s1^2, r s1 s2], [r s1 s2, s2^2]] (the law of
+            propagation of uncertainty with correlated inputs, JCGM
+            100:2008 (GUM), 5.2.2, Eq. (13)). None (default) or 0 gives
+            the independent-error result, bit for bit. Needs sigma1 and
+            sigma2. NaN marks a masked pixel, like a NaN sigma.
         """
         dw1 = np.asarray(dw1, dtype=float)
         dw2 = np.asarray(dw2, dtype=float)
@@ -103,6 +135,10 @@ class SeparationModel:
         density = self.Kinv[1, 0] * dw1 + self.Kinv[1, 1] * dw2
 
         strain_sigma = density_sigma = correlation = None
+        if shift_correlation is not None and (sigma1 is None
+                                              or sigma2 is None):
+            raise ValueError("shift_correlation needs both sigma1 and "
+                             "sigma2")
         if sigma1 is not None and sigma2 is not None:
             s1 = np.broadcast_to(np.asarray(sigma1, dtype=float), dw1.shape)
             s2 = np.broadcast_to(np.asarray(sigma2, dtype=float), dw2.shape)
@@ -113,6 +149,13 @@ class SeparationModel:
             var_density = (self.Kinv[1, 0] * s1) ** 2 + (self.Kinv[1, 1] * s2) ** 2
             cov = (self.Kinv[0, 0] * self.Kinv[1, 0] * s1**2
                    + self.Kinv[0, 1] * self.Kinv[1, 1] * s2**2)
+            if shift_correlation is not None:
+                rho = _check_shift_correlation(shift_correlation, dw1.shape)
+                c12 = rho * s1 * s2               # Cov(dw1, dw2)
+                Ki = self.Kinv
+                var_strain = var_strain + 2.0 * Ki[0, 0] * Ki[0, 1] * c12
+                var_density = var_density + 2.0 * Ki[1, 0] * Ki[1, 1] * c12
+                cov = cov + (Ki[0, 0] * Ki[1, 1] + Ki[0, 1] * Ki[1, 0]) * c12
             strain_sigma = np.sqrt(var_strain)
             density_sigma = np.sqrt(var_density)
             with np.errstate(invalid="ignore", divide="ignore"):

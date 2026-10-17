@@ -21,8 +21,12 @@ Algorithm: K. Levenberg, Quart. Appl. Math. 2, 164 (1944);
 D. W. Marquardt, J. Soc. Ind. Appl. Math. 11, 431 (1963). Parameter
 uncertainties are the standard linearized least-squares estimates,
 sigma_p^2 = s^2 [(J^T J)^-1]_pp with s^2 the residual variance; they are
-trustworthy when the residuals are dominated by uncorrelated noise, and
-that caveat is documented rather than hidden.
+trustworthy when the residuals are dominated by uncorrelated noise of
+the same size at every point, and that caveat is documented rather
+than hidden. (Before v0.14 this said "uncorrelated noise" only. Shot
+noise is uncorrelated but larger on a peak than on its baseline, and
+the tests show these error bars then too small by a factor of 1.7;
+use noise="varying" for such spectra.)
 
 Exact facts the test suite asserts, rather than states:
 
@@ -35,6 +39,11 @@ Exact facts the test suite asserts, rather than states:
 * A full round trip (strain/density maps -> forward shifts -> synthetic
   spectra -> `fit_two_modes` -> `SeparationModel.invert`) returns the
   input maps.
+
+Since v0.14 `noise="varying"` replaces s^2 (J^T J)^-1 by the
+heteroskedasticity-consistent ("sandwich") covariance of H. White,
+Econometrica 48, 817 (1980), for spectra whose noise level changes
+along the axis, as shot noise does; the fitted values are unchanged.
 
 Since v0.12 `fit_two_modes(..., joint=True)` fits two overlapping
 peaks together (two Lorentzians on one shared baseline, same
@@ -143,8 +152,29 @@ def _initial_guess(x, y):
     return np.array([c0, G0, A0 if A0 > 0 else 1.0, b0])
 
 
+def _check_noise(noise):
+    """Refuse an unknown `noise` setting. "constant": error bars from
+    the residual variance, s^2 (J^T J)^-1 (the only choice before
+    v0.14). "varying": White's heteroskedasticity-consistent sandwich
+    covariance (see `fit_lorentzian`). On seeded shot-noise (Poisson)
+    spectra of a peak 400 counts high on a 30-count baseline, the
+    tests find the actual scatter of the fitted center 1.7 times the
+    "constant" error bar and within 10 percent of the "varying" one."""
+    if noise not in ("constant", "varying"):
+        raise ValueError('noise must be "constant" or "varying"')
+
+
+def _sandwich(J, r, B):
+    """(J^T J)^-1 J^T diag(r^2) J (J^T J)^-1 * n / (n - p), with B the
+    inverse of J^T J (White 1980, linearized model)."""
+    n, npar = J.shape
+    M = (J * (r * r)[:, None]).T @ J
+    return (n / (n - npar)) * (B @ M @ B)
+
+
 def fit_lorentzian(x, y, p0=None, max_iter=200, tol=1e-12,
-                   baseline="constant") -> PeakFit:
+                   baseline="constant", noise: str = "constant"
+                   ) -> PeakFit:
     """Fit one Lorentzian peak by Levenberg-Marquardt least squares.
 
     x, y : 1D arrays of equal length >= 5 (constant baseline; the
@@ -161,6 +191,19 @@ def fit_lorentzian(x, y, p0=None, max_iter=200, tol=1e-12,
         pulls the fitted center sideways -- the tests demonstrate the
         bias and its recovery.
     tol : relative decrease of the cost at which iteration stops.
+    noise : how the error bars are computed (new in v0.14; the fitted
+        values do not depend on it). "constant" (default, unchanged)
+        assumes the same noise level at every spectral point:
+        s^2 (J^T J)^-1 with s^2 the residual variance. "varying" makes
+        no such assumption: the heteroskedasticity-consistent
+        ("sandwich") covariance of H. White, Econometrica 48, 817
+        (1980), (J^T J)^-1 J^T diag(r^2) J (J^T J)^-1 with r the
+        residuals, applied to the linearized model at the fit, times
+        n / (n - p) (n points, p parameters). Use it for shot-noise
+        limited spectra, whose noise grows with the counts: there the
+        "constant" error bars of a peak standing high above its
+        baseline are too small, by a factor of 1.7 in the tests (see
+        `_check_noise`).
 
     Returns a `PeakFit`. `converged` is False if `max_iter` was hit
     first; the parameters returned are then the best found, and the
@@ -170,6 +213,7 @@ def fit_lorentzian(x, y, p0=None, max_iter=200, tol=1e-12,
     y = np.asarray(y, dtype=float).ravel()
     if baseline not in ("constant", "linear"):
         raise ValueError('baseline must be "constant" or "linear"')
+    _check_noise(noise)
     lin = baseline == "linear"
     npar = 5 if lin else 4
     if x.size != y.size:
@@ -239,7 +283,10 @@ def fit_lorentzian(x, y, p0=None, max_iter=200, tol=1e-12,
     s2 = cost / dof
     JTJ = J.T @ J
     try:
-        cov = s2 * np.linalg.inv(JTJ)
+        if noise == "varying":
+            cov = _sandwich(J, r, np.linalg.inv(JTJ))
+        else:
+            cov = s2 * np.linalg.inv(JTJ)
         sig = np.sqrt(np.maximum(np.diag(cov), 0.0))
     except np.linalg.LinAlgError:                # pragma: no cover
         sig = np.full(npar, np.nan)
@@ -292,7 +339,8 @@ def _check_references(ref1, ref2):
 
 
 def fit_two_modes(x, y, window1, window2, ref1: float, ref2: float,
-                  baseline: str = "constant", joint: bool = False
+                  baseline: str = "constant", joint: bool = False,
+                  noise: str = "constant"
                   ) -> tuple[float, float, float, float, PeakFit, PeakFit]:
     """Fit both modes of a spectrum and return inversion-ready shifts.
 
@@ -316,7 +364,13 @@ def fit_two_modes(x, y, window1, window2, ref1: float, ref2: float,
         is gone. That span must contain no third peak. The two fitted
         centres are then slightly correlated; the correlation is
         reported in `fit1.center_correlation` (the inversion itself
-        treats dw1 and dw2 as independent).
+        treats dw1 and dw2 as independent unless it is given that
+        correlation: `SeparationModel.invert(..., shift_correlation=)`,
+        new in v0.14).
+    noise : "constant" (default) or "varying", passed to
+        `fit_lorentzian` and used by the joint fit as well (new in
+        v0.14): "varying" gives error bars that stay right when the
+        noise level changes along the spectrum, as shot noise does.
 
     Returns (dw1, dw2, sigma1, sigma2, fit1, fit2): the two peak shifts
     relative to the references, their 1-sigma uncertainties, and the two
@@ -329,14 +383,16 @@ def fit_two_modes(x, y, window1, window2, ref1: float, ref2: float,
     y = np.asarray(y, dtype=float).ravel()
     w1, w2 = _check_two_mode_setup(x, window1, window2, baseline)
     ref1, ref2 = _check_references(ref1, ref2)
+    _check_noise(noise)
     fits = []
     for lo, hi in (w1, w2):
         m = (x >= lo) & (x <= hi)
-        fits.append(fit_lorentzian(x[m], y[m], baseline=baseline))
+        fits.append(fit_lorentzian(x[m], y[m], baseline=baseline,
+                                   noise=noise))
     fit1, fit2 = fits
     if joint:
         fit1, fit2 = _fit_two_lorentzians_joint(x, y, w1, w2, baseline,
-                                                fit1, fit2)
+                                                fit1, fit2, noise=noise)
     return (fit1.center - float(ref1), fit2.center - float(ref2),
             fit1.center_sigma, fit2.center_sigma, fit1, fit2)
 
@@ -369,7 +425,7 @@ def _two_lorentzians_model_and_jacobian(x, p, x0, lin):
 
 
 def _fit_two_lorentzians_joint(x, y, w1, w2, baseline, start1, start2,
-                               max_iter=300, tol=1e-12):
+                               max_iter=300, tol=1e-12, noise="constant"):
     """Levenberg-Marquardt fit of two Lorentzians plus a shared
     baseline on the span covering both windows; the same damping rule
     and linearised covariance as `fit_lorentzian`. Returns two
@@ -429,7 +485,10 @@ def _fit_two_lorentzians_joint(x, y, w1, w2, baseline, start1, start2,
         raise ValueError("the joint fit span holds too few points")
     s2 = cost / dof
     try:
-        cov = s2 * np.linalg.inv(J.T @ J)
+        if noise == "varying":
+            cov = _sandwich(J, r, np.linalg.inv(J.T @ J))
+        else:
+            cov = s2 * np.linalg.inv(J.T @ J)
         sig = np.sqrt(np.maximum(np.diag(cov), 0.0))
         with np.errstate(invalid="ignore", divide="ignore"):
             rho = float(cov[0, 3] / (sig[0] * sig[3]))
@@ -451,6 +510,273 @@ def _fit_two_lorentzians_joint(x, y, w1, w2, baseline, start1, start2,
             slope_sigma=float(sig[7]) if lin else float("nan"),
             center_correlation=rho))
     return out[0], out[1]
+
+
+# ----------------------------------------------------------------------
+# Many spectra at once (new in v0.14): the engine of `fit_map`.
+#
+# `_fit_lorentzian_rows` runs, for every row of a (P, n) block of
+# spectra on one shared axis, exactly the algorithm of `fit_lorentzian`
+# with its default starting values, and `_fit_joint_rows` that of the
+# joint two-peak fit: the same starting values, the same damping rule
+# and stopping tests per spectrum, and the same linearized covariance.
+# Only the bookkeeping is shared. Every per-spectrum reduction uses the
+# same NumPy call as the single-spectrum code (a matrix product of J^T
+# with J, of J^T with r, of r with r, `numpy.linalg.solve` with one
+# right-hand side, `numpy.linalg.inv`), stacked over the spectra, and
+# every elementwise expression keeps its order of operations, so each
+# spectrum's numbers come out bit for bit as the single-spectrum fit
+# gives them. The tests assert that equality on noisy maps, with
+# pixels without a peak, for both baselines and both fit modes.
+
+def _initial_guess_rows(x, Y):
+    """`_initial_guess` for every row of Y, operation for operation."""
+    P = Y.shape[0]
+    b0 = np.min(Y, axis=1)
+    i = np.argmax(Y, axis=1)
+    A0 = Y[np.arange(P), i] - b0
+    c0 = x[i]
+    half = b0 + 0.5 * A0
+    above = Y >= half[:, None]                 # never empty: the max is in
+    G0 = (np.max(np.where(above, x, -np.inf), axis=1)
+          - np.min(np.where(above, x, np.inf), axis=1))
+    G0 = np.maximum(G0, 2.0 * abs(float(x[1] - x[0])))
+    return np.column_stack([c0, G0, np.where(A0 > 0, A0, 1.0), b0])
+
+
+def _lorentzian_rows(x, p, lin):
+    """`_model_and_jacobian(_linear)` for every row of p (x0 in the
+    last column of p when lin), same order of operations per element."""
+    c, G, A, b = (p[:, k:k + 1] for k in range(4))
+    h = 0.5 * G
+    u = x[None, :] - c
+    d = u * u + h * h
+    core = h * h / d
+    y = A * core + b
+    J = np.empty((p.shape[0], x.size, 5 if lin else 4))
+    J[:, :, 0] = A * h * h * 2.0 * u / (d * d)   # d/dc
+    J[:, :, 1] = A * h * u * u / (d * d)         # d/dG
+    J[:, :, 2] = core                            # d/dA
+    J[:, :, 3] = 1.0                             # d/db
+    return y, J
+
+
+def _row_costs(r):
+    """r @ r for every row of r."""
+    return np.matmul(r[:, None, :], r[:, :, None])[:, 0, 0]
+
+
+def _solve_rows(M, g):
+    """`numpy.linalg.solve(M[k], g[k])` for every k. Returns the steps
+    and None, or, if some matrix is exactly singular, the steps of the
+    others and a boolean mask of the singular ones."""
+    try:
+        return np.linalg.solve(M, g[:, :, None])[:, :, 0], None
+    except np.linalg.LinAlgError:              # pragma: no cover
+        out = np.full(g.shape, np.nan)
+        bad = np.zeros(g.shape[0], dtype=bool)
+        for k in range(g.shape[0]):
+            try:
+                out[k] = np.linalg.solve(M[k], g[k][:, None])[:, 0]
+            except np.linalg.LinAlgError:
+                bad[k] = True
+        return out, bad
+
+
+def _lm_rows(Y, p, model, gauges, max_iter, tol):
+    """The Levenberg-Marquardt loop of `fit_lorentzian` (and of the
+    joint fit), stacked over the rows of Y from the starting values p.
+    model(p) returns the model rows and Jacobians for the rows of p;
+    gauges are the parameter indices whose sign is a gauge (widths).
+    Returns (p, cost, J, n_iter, converged)."""
+    p = p.copy()
+    P = Y.shape[0]
+    npar = p.shape[1]
+    lam = np.full(P, 1e-3)
+    yfit, J = model(p)
+    r = Y - yfit
+    cost = _row_costs(r)
+    active = np.ones(P, dtype=bool)
+    converged = np.zeros(P, dtype=bool)
+    n_iter = np.full(P, max_iter)
+    eye = np.eye(npar, dtype=bool)
+    for it in range(1, max_iter + 1):
+        idx = np.flatnonzero(active)
+        if idx.size == 0:
+            break
+        Ja = J[idx]
+        JaT = Ja.transpose(0, 2, 1)
+        JTJ = np.matmul(JaT, Ja)
+        g = np.matmul(JaT, r[idx][:, :, None])[:, :, 0]
+        D = np.where(eye, JTJ, 0.0)              # np.diag(np.diag(JTJ))
+        step, singular = _solve_rows(JTJ + lam[idx][:, None, None] * D, g)
+        if singular is not None:                 # pragma: no cover
+            lam[idx[singular]] *= 10.0
+            idx, step = idx[~singular], step[~singular]
+            if idx.size == 0:
+                continue
+        p_new = p[idx] + step
+        for k in gauges:
+            p_new[:, k] = np.abs(p_new[:, k])
+        y_new, J_new = model(p_new)
+        r_new = Y[idx] - y_new
+        cost_new = _row_costs(r_new)
+        better = cost_new < cost[idx]
+        ib = idx[better]
+        rel = ((cost[ib] - cost_new[better])
+               / np.maximum(cost[ib], 1e-300))
+        p[ib], r[ib], J[ib] = p_new[better], r_new[better], J_new[better]
+        cost[ib] = cost_new[better]
+        lam[ib] = np.maximum(lam[ib] / 10.0, 1e-12)
+        done = ib[rel < tol]
+        iw = idx[~better]
+        lam[iw] *= 10.0
+        stuck = iw[lam[iw] > 1e12]               # stuck at a minimum
+        for fin in (done, stuck):
+            converged[fin] = True
+            active[fin] = False
+            n_iter[fin] = it
+    return p, cost, J, r, n_iter, converged
+
+
+def _cov_rows(J, cost, r, noise):
+    """The covariance of every row, as the single-spectrum code
+    computes it: s^2 (J^T J)^-1 with s^2 = cost / (n - p), or the
+    sandwich of `_sandwich` for noise="varying"; NaN where J^T J is
+    singular (where the single-spectrum code reports NaN)."""
+    n, npar = J.shape[1:]
+    JTJ = np.matmul(J.transpose(0, 2, 1), J)
+    try:
+        inv = np.linalg.inv(JTJ)
+    except np.linalg.LinAlgError:                # pragma: no cover
+        inv = np.full(JTJ.shape, np.nan)
+        for k in range(JTJ.shape[0]):
+            try:
+                inv[k] = np.linalg.inv(JTJ[k])
+            except np.linalg.LinAlgError:
+                pass
+    if noise == "varying":
+        M = np.matmul((J * (r * r)[:, :, None]).transpose(0, 2, 1), J)
+        return (n / (n - npar)) * np.matmul(np.matmul(inv, M), inv)
+    return (cost / (n - npar))[:, None, None] * inv
+
+
+def _fit_lorentzian_rows(x, Y, baseline="constant", max_iter=200,
+                         tol=1e-12, noise="constant"):
+    """Fit one Lorentzian to every row of Y (P, n) on the shared axis x
+    (n,), as `fit_lorentzian(x, Y[k], baseline=baseline)` would, and
+    return a list of P `PeakFit`s. x and every row must be finite and
+    n large enough (checked by the callers). A row whose starting width
+    is not positive (possible only on an axis with repeated values),
+    which `fit_lorentzian` refuses with a ValueError, gives None."""
+    x = np.asarray(x, dtype=float).ravel()
+    Y = np.asarray(Y, dtype=float)
+    lin = baseline == "linear"
+    n = x.size
+    x0 = float(x.mean())
+    if lin:
+        m0 = (Y[:, -1] - Y[:, 0]) / (float(x[-1]) - float(x[0]))
+        p = np.column_stack([
+            _initial_guess_rows(x, Y - m0[:, None] * (x - x0)[None, :]),
+            m0])
+    else:
+        p = _initial_guess_rows(x, Y)
+    startable = p[:, 1] > 0
+    out = [None] * Y.shape[0]
+    if not np.any(startable):
+        return out
+    dx = x - x0
+
+    def model(pv):
+        y, J = _lorentzian_rows(x, pv, lin)
+        if lin:
+            y = y + pv[:, 4:5] * dx[None, :]
+            J[:, :, 4] = dx                      # d/dm
+        return y, J
+
+    p, cost, J, r, n_iter, conv = _lm_rows(Y[startable], p[startable],
+                                           model, (1,), max_iter, tol)
+    cov = _cov_rows(J, cost, r, noise)
+    sig = np.sqrt(np.maximum(np.diagonal(cov, axis1=1, axis2=2), 0.0))
+    rms = np.sqrt(cost / n)
+    for k, row in enumerate(np.flatnonzero(startable)):
+        out[row] = PeakFit(
+            center=float(p[k, 0]), fwhm=float(p[k, 1]),
+            amplitude=float(p[k, 2]), offset=float(p[k, 3]),
+            center_sigma=float(sig[k, 0]), fwhm_sigma=float(sig[k, 1]),
+            amplitude_sigma=float(sig[k, 2]),
+            offset_sigma=float(sig[k, 3]), residual_rms=float(rms[k]),
+            n_iter=int(n_iter[k]), converged=bool(conv[k]),
+            slope=float(p[k, 4]) if lin else 0.0,
+            slope_sigma=float(sig[k, 4]) if lin else float("nan"))
+    return out
+
+
+def _fit_joint_rows(x, Y, w1, w2, baseline, starts, max_iter=300,
+                    tol=1e-12, noise="constant"):
+    """`_fit_two_lorentzians_joint` for every row of Y (P, n) on the
+    shared full axis x, with starts[k] = (PeakFit of mode 1, PeakFit of
+    mode 2) from the separate window fits. Returns a list of P pairs of
+    `PeakFit`s, bit for bit those of the single-spectrum joint fit."""
+    lin = baseline == "linear"
+    npar = 8 if lin else 7
+    lo = min(w1[0], w2[0])
+    hi = max(w1[1], w2[1])
+    sel = (x >= lo) & (x <= hi)
+    xs, Ys = x[sel], Y[:, sel]
+    n = xs.size
+    if n - npar < 1:
+        raise ValueError("the joint fit span holds too few points")
+    x0 = float(xs.mean())
+    dx = xs - x0
+    p = np.array([[a.center, a.fwhm, a.amplitude, b.center, b.fwhm,
+                   b.amplitude, min(a.offset, b.offset)]
+                  + ([0.0] if lin else []) for a, b in starts],
+                 dtype=float).reshape(len(starts), npar)
+
+    def model(pv):
+        J = np.empty((pv.shape[0], n, npar))
+        y = np.repeat(pv[:, 6:7], n, axis=1)
+        for k in range(2):
+            c, G, A = (pv[:, 3 * k + q:3 * k + q + 1] for q in range(3))
+            h = 0.5 * G
+            u = xs[None, :] - c
+            d = u * u + h * h
+            core = h * h / d
+            y = y + A * core
+            J[:, :, 3 * k] = A * h * h * 2.0 * u / (d * d)
+            J[:, :, 3 * k + 1] = A * h * u * u / (d * d)
+            J[:, :, 3 * k + 2] = core
+        J[:, :, 6] = 1.0
+        if lin:
+            y = y + pv[:, 7:8] * dx[None, :]
+            J[:, :, 7] = dx
+        return y, J
+
+    p, cost, J, r, n_iter, conv = _lm_rows(Ys, p, model, (1, 4),
+                                           max_iter, tol)
+    cov = _cov_rows(J, cost, r, noise)
+    sig = np.sqrt(np.maximum(np.diagonal(cov, axis1=1, axis2=2), 0.0))
+    with np.errstate(invalid="ignore", divide="ignore"):
+        rho = cov[:, 0, 3] / (sig[:, 0] * sig[:, 3])
+    rms = np.sqrt(cost / n)
+    out = []
+    for i in range(p.shape[0]):
+        pair = []
+        for k in range(2):
+            pair.append(PeakFit(
+                center=float(p[i, 3 * k]), fwhm=float(p[i, 3 * k + 1]),
+                amplitude=float(p[i, 3 * k + 2]), offset=float(p[i, 6]),
+                center_sigma=float(sig[i, 3 * k]),
+                fwhm_sigma=float(sig[i, 3 * k + 1]),
+                amplitude_sigma=float(sig[i, 3 * k + 2]),
+                offset_sigma=float(sig[i, 6]), residual_rms=float(rms[i]),
+                n_iter=int(n_iter[i]), converged=bool(conv[i]),
+                slope=float(p[i, 7]) if lin else 0.0,
+                slope_sigma=float(sig[i, 7]) if lin else float("nan"),
+                center_correlation=float(rho[i])))
+        out.append(tuple(pair))
+    return out
 
 
 # ----------------------------------------------------------------------

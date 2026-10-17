@@ -25,11 +25,12 @@ from .mapio import (load_map_csv, load_map_table, load_spectrum_csv,
                     load_spectrum_table, save_map_csv, save_spectrum_csv)
 from .materials import (ModeCoefficients, graphene_g_2d_lee2012,
                         mos2_a1_2la, mos2_eprime_a1, synthetic_demo)
+from .regions import RegionEstimate, region_contrast, region_mean
 from .thermal import (HC_OVER_KB_CM_K, ThreeCauseModel, ThreeCauseResult,
                       anti_stokes_ratio, calibrate_anti_stokes,
                       temperature_from_anti_stokes)
 
-__version__ = "0.13.1"
+__version__ = "0.14.0"
 __all__ = ["SeparationModel", "SeparationResult", "ModeCoefficients",
            "MultiModeModel", "MultiModeResult", "compare_mode_sets",
            "ThreeCauseModel", "ThreeCauseResult", "HC_OVER_KB_CM_K",
@@ -47,4 +48,5 @@ __all__ = ["SeparationModel", "SeparationResult", "ModeCoefficients",
            "VoigtFit", "fit_voigt", "voigt",
            "plan_calibration", "design_references",
            "repeats_for_sigma", "separation_with_calibration",
-           "multimode_with_calibration"]
+           "multimode_with_calibration",
+           "RegionEstimate", "region_mean", "region_contrast"]

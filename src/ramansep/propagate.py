@@ -51,7 +51,8 @@ __all__ = ["separation_with_calibration", "multimode_with_calibration"]
 
 
 def separation_with_calibration(calibration, dw1, dw2, sigma1=None,
-                                sigma2=None):
+                                sigma2=None, shift_correlation=None
+                                ) -> dict:
     """Two-mode inversion with the calibration's uncertainty included.
 
     calibration : a `CalibrationResult` from `calibrate_lever_arms`
@@ -59,6 +60,9 @@ def separation_with_calibration(calibration, dw1, dw2, sigma1=None,
     dw1, dw2, sigma1, sigma2 : exactly as `SeparationModel.invert`
         takes them (shifts in cm^-1 relative to pristine, optional
         1-sigma shift errors).
+    shift_correlation : optional correlation of the two shift errors,
+        passed to `SeparationModel.invert` (new in v0.14); it changes
+        the shift-noise part only.
 
     Returns dict(strain, density, strain_sigma, density_sigma,
     strain_sigma_shifts, strain_sigma_calibration,
@@ -88,7 +92,8 @@ def separation_with_calibration(calibration, dw1, dw2, sigma1=None,
         reference="calibrated lever arms (provenance in the "
                   "CalibrationResult this was built from)")
     model = SeparationModel(coeffs)
-    base = model.invert(dw1, dw2, sigma1=sigma1, sigma2=sigma2)
+    base = model.invert(dw1, dw2, sigma1=sigma1, sigma2=sigma2,
+                        shift_correlation=shift_correlation)
 
     Kinv = np.linalg.inv(K)
     x = np.stack([np.asarray(base.strain, dtype=float),

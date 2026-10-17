@@ -106,7 +106,10 @@ class CalibrationResult:
     n_points : number of reference measurements used.
     condition_number : of the (unweighted) reference design; large
         values mean the reference states barely span the plane and the
-        arms, though identifiable, are poorly determined. With
+        arms, though identifiable, are poorly determined. It depends on
+        the units (with the density in cm^-2 it is of order 1e13 even
+        for a good design); the identifiability test does not (since
+        v0.14 it is made on the design with unit-length columns). With
         `fit_offset=True` it is that of the centered design (each column
         minus its mean), since only the spread about the mean state
         determines the arms then.
@@ -224,10 +227,13 @@ def calibrate_lever_arms(strain, density, shifts, sigmas=None,
                                       single)
 
     X = np.column_stack([eps, rho])                      # (n, 2)
-    # identifiability: the reference states must span the plane
+    # identifiability: the reference states must span the plane. The
+    # test is made on the column-normalized design, so that it does not
+    # depend on the units (before v0.14 it used the raw singular values
+    # and refused, as "collinear", any design whose strain and density
+    # columns differ in scale by about 1e12, e.g. density in cm^-2)
     sv = np.linalg.svd(X, compute_uv=False)
-    scale = float(sv[0])
-    if scale == 0.0 or sv[-1] <= 1e-12 * scale:
+    if not _spans_plane(X):
         raise ValueError(
             "reference states are collinear in the (strain, density) "
             "plane, so the strain and density lever arms are not "
@@ -282,6 +288,19 @@ def calibrate_lever_arms(strain, density, shifts, sigmas=None,
     )
 
 
+def _spans_plane(X, rtol=1e-12):
+    """True if the (n, 2) design X has rank 2, judged without regard to
+    the units of its columns: each column is divided by its Euclidean
+    norm (a zero column stays zero) before the ratio of the singular
+    values is compared with `rtol`. Rank does not depend on the scale of
+    a column, so neither may this test (new in v0.14)."""
+    X = np.asarray(X, dtype=float)
+    norms = np.sqrt(np.sum(X * X, axis=0))
+    norms[norms == 0.0] = 1.0
+    sv = np.linalg.svd(X / norms, compute_uv=False)
+    return bool(sv[0] > 0.0 and sv[-1] > rtol * sv[0])
+
+
 def _broadcast_sigmas(sigmas, n, m, single):
     """Shift sigmas as an (n, m) array: scalar, (m,) per mode, (n, m)
     per point and mode, or (n,) per point for a single mode given as
@@ -308,7 +327,7 @@ def _calibrate_with_offset(eps, rho, y, sigmas, mode_names, single):
     X = np.column_stack([eps, rho])
     Xc = X - X.mean(axis=0)
     sv = np.linalg.svd(Xc, compute_uv=False)
-    if sv[0] == 0.0 or sv[-1] <= 1e-12 * sv[0]:
+    if not _spans_plane(Xc):                     # unit-free, since v0.14
         raise ValueError(
             "with fit_offset=True the reference states must not lie on "
             "one straight line in the (strain, density) plane (any "

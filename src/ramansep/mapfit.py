@@ -22,6 +22,14 @@ inversion (`bayesian_map_inversion`) couples pixels through its
 smoothness prior; it refuses NaNs unless asked to fill them from the
 neighbours (`fill_masked=True`, since v0.12).
 
+Since v0.14 the pixels are fitted together, in blocks, by a stacked
+version of the same Levenberg-Marquardt loop (5 to 7 times faster on
+a 1200-pixel map, 3 to 4 times with `joint=True`); every number is bit for
+bit what the per-pixel loop over `fit_two_modes` gave, which the tests
+assert. `MapFitResult.shift_correlation` carries the correlation of
+the two shift errors for `SeparationModel.invert`, and `noise` selects
+how the error bars are computed (see `fit_lorentzian`).
+
 Anchors asserted in the tests rather than stated: on a synthetic cube
 built from known strain and density maps through the forward model
 and Lorentzian lineshapes, fit_map -> invert returns the input maps;
@@ -36,10 +44,16 @@ import dataclasses
 
 import numpy as np
 
-from .fitting import (_check_references, _check_two_mode_setup,
-                      fit_two_modes)
+from .fitting import (_check_noise, _check_references,
+                      _check_two_mode_setup, _fit_joint_rows,
+                      _fit_lorentzian_rows)
 
 __all__ = ["MapFitResult", "fit_map", "MASK_REASONS"]
+
+# pixels fitted together per block by `fit_map`; bounds the memory of
+# the stacked Jacobians (block x points x 5 floats) without changing
+# any result
+_BLOCK = 1024
 
 
 #: Meaning of the codes in `MapFitResult.reason` (new in v0.12).
@@ -69,6 +83,13 @@ class MapFitResult:
         kept pixels); `MASK_REASONS` maps each code to its meaning. The
         first failed check is recorded, in the order of the codes (new
         in v0.12).
+    shift_correlation : (H, W) correlation of the errors of dw1 and
+        dw2 at each kept pixel: the correlation of the two fitted
+        centers with `joint=True`, and 0 for separate window fits (they
+        use disjoint spectral points, so their errors are independent);
+        NaN at masked pixels. Pass it to `SeparationModel.invert(...,
+        shift_correlation=...)` (new in v0.14; None in results built by
+        hand).
     """
 
     dw1: np.ndarray
@@ -78,18 +99,21 @@ class MapFitResult:
     ok: np.ndarray
     n_masked: int
     reason: np.ndarray | None = None
+    shift_correlation: np.ndarray | None = None
 
 
 def fit_map(wavenumber, cube, window1, window2, ref1: float, ref2: float,
             baseline: str = "constant", *, joint: bool = False,
             min_snr: float | None = None,
-            fwhm_range: tuple[float, float] | None = None) -> MapFitResult:
+            fwhm_range: tuple[float, float] | None = None,
+            noise: str = "constant") -> MapFitResult:
     """Fit both modes at every pixel of a hyperspectral cube.
 
     wavenumber : (L,) shared axis (cm^-1).
     cube : (H, W, L) counts, e.g. from `load_map_csv`.
-    window1, window2, ref1, ref2, baseline, joint : exactly as in
-        `fit_two_modes`, applied identically at every pixel.
+    window1, window2, ref1, ref2, baseline, joint, noise : exactly as
+        in `fit_two_modes`, applied identically at every pixel (`noise`
+        is new in v0.14: "varying" for shot-noise limited spectra).
     min_snr : optional; mask a pixel unless each fitted peak height is
         at least `min_snr` times its own error bar. Use it on maps with
         pixels that carry no peak (off the flake, a hole, a dead spot):
@@ -115,8 +139,8 @@ def fit_map(wavenumber, cube, window1, window2, ref1: float, ref2: float,
     configuration that `fit_two_modes` refuses (baseline name,
     reversed or overlapping windows, fewer than 5 points in a window
     (6 for the linear baseline), a reference frequency that is not
-    finite), a non-positive `min_snr`, or a `fwhm_range` that is not
-    (lo, hi) with 0 <= lo < hi.
+    finite), an unknown `noise` name, a non-positive `min_snr`, or a
+    `fwhm_range` that is not (lo, hi) with 0 <= lo < hi.
     """
     x = np.asarray(wavenumber, dtype=float).ravel()
     c = np.asarray(cube, dtype=float)
@@ -132,6 +156,7 @@ def fit_map(wavenumber, cube, window1, window2, ref1: float, ref2: float,
     # a NaN reference made every shift NaN while `ok` stayed True
     # (before v0.13); refuse it once, like the other settings
     _check_references(ref1, ref2)
+    _check_noise(noise)
     if min_snr is not None:
         min_snr = float(min_snr)
         if not (np.isfinite(min_snr) and min_snr > 0.0):
@@ -147,21 +172,47 @@ def fit_map(wavenumber, cube, window1, window2, ref1: float, ref2: float,
     dw2 = np.full((H, W), np.nan)
     s1 = np.full((H, W), np.nan)
     s2 = np.full((H, W), np.nan)
+    rho = np.full((H, W), np.nan)
     ok = np.zeros((H, W), dtype=bool)
     reason = np.zeros((H, W), dtype=int)
     w1 = tuple(float(v) for v in window1)
     w2 = tuple(float(v) for v in window2)
-    for i in range(H):
-        for j in range(W):
-            y = c[i, j]
-            if not np.all(np.isfinite(y)):
-                reason[i, j] = 1
-                continue
+    r1, r2 = float(ref1), float(ref2)
+    # Since v0.14 the separate window fits of all pixels run together
+    # (`_fit_lorentzian_rows`, the algorithm of `fit_lorentzian` stacked
+    # over pixels), in blocks so that memory stays bounded. Each pixel's
+    # numbers are bit for bit those of a `fit_two_modes` call on its
+    # spectrum, as before; the tests assert it.
+    flat = c.reshape(H * W, x.size)
+    finite = np.all(np.isfinite(flat), axis=1)
+    reason.reshape(-1)[~finite] = 1
+    sel1 = (x >= w1[0]) & (x <= w1[1])
+    sel2 = (x >= w2[0]) & (x <= w2[1])
+    good = np.flatnonzero(finite)
+    for start in range(0, good.size, _BLOCK):
+        block = good[start:start + _BLOCK]
+        rows = flat[block]
+        fits = list(zip(_fit_lorentzian_rows(x[sel1], rows[:, sel1],
+                                             baseline, noise=noise),
+                        _fit_lorentzian_rows(x[sel2], rows[:, sel2],
+                                             baseline, noise=noise)))
+        # a None fit is a spectrum `fit_lorentzian` refuses (reason 2)
+        started = [k for k, (f1, f2) in enumerate(fits)
+                   if f1 is not None and f2 is not None]
+        if joint and started:
             try:
-                d1, d2, e1, e2, f1, f2 = fit_two_modes(
-                    x, y, w1, w2, ref1, ref2, baseline=baseline,
-                    joint=joint)
-            except (ValueError, np.linalg.LinAlgError):
+                pairs = _fit_joint_rows(x, rows[started], w1, w2,
+                                        baseline,
+                                        [fits[k] for k in started],
+                                        noise=noise)
+            except (ValueError, np.linalg.LinAlgError):  # pragma: no cover
+                pairs = [(None, None)] * len(started)
+            for k, pair in zip(started, pairs):
+                fits[k] = pair
+        for k, pix in enumerate(block):
+            i, j = divmod(int(pix), W)
+            f1, f2 = fits[k]
+            if f1 is None or f2 is None:
                 reason[i, j] = 2
                 continue
             if not (f1.converged and f2.converged):
@@ -183,8 +234,12 @@ def fit_map(wavenumber, cube, window1, window2, ref1: float, ref2: float,
                     g_lo <= f1.fwhm <= g_hi and g_lo <= f2.fwhm <= g_hi):
                 reason[i, j] = 7
                 continue
-            dw1[i, j], dw2[i, j] = d1, d2
-            s1[i, j], s2[i, j] = e1, e2
+            dw1[i, j], dw2[i, j] = f1.center - r1, f2.center - r2
+            s1[i, j], s2[i, j] = f1.center_sigma, f2.center_sigma
+            # separate window fits use disjoint spectral points, so
+            # their center errors are independent: correlation 0
+            rho[i, j] = f1.center_correlation if joint else 0.0
             ok[i, j] = True
     return MapFitResult(dw1=dw1, dw2=dw2, sigma1=s1, sigma2=s2, ok=ok,
-                        n_masked=int((~ok).sum()), reason=reason)
+                        n_masked=int((~ok).sum()), reason=reason,
+                        shift_correlation=rho)

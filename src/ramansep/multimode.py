@@ -191,11 +191,13 @@ class MultiModeModel:
                 for k in range(self.m)]
 
 
-def compare_mode_sets(K, sigmas, mode_names=None, subset_size: int = 2):
+def compare_mode_sets(K, sigmas, mode_names=None,
+                      subset_size: int = 2) -> list[dict]:
     """Rank all mode subsets of a given size by delivered uncertainty.
 
     K: (m, 2) lever arms; sigmas: per-mode shift uncertainties (scalars);
-    returns a list of dicts sorted best-first by A-optimality (the trace
+    subset_size: modes per subset, a whole number from 2 to m (refused
+    otherwise since v0.14; before, it returned an empty list); returns a list of dicts sorted best-first by A-optimality (the trace
     of the estimate covariance, i.e. var_strain + var_density), each with
     the subset's names, indices, var_strain, var_density, trace, and
     d_optimality = det of the information matrix (larger is better).
@@ -211,6 +213,13 @@ def compare_mode_sets(K, sigmas, mode_names=None, subset_size: int = 2):
         raise ValueError("one sigma per mode required")
     if not np.all(np.isfinite(sigmas)) or np.any(sigmas <= 0.0):
         raise ValueError("sigmas must be finite and positive")
+    # before v0.14 a subset size below 2 or above m returned an empty
+    # list without saying why (one mode cannot separate two causes)
+    if (isinstance(subset_size, bool) or not float(subset_size).is_integer()
+            or not 2 <= int(subset_size) <= m):
+        raise ValueError(f"subset_size must be a whole number from 2 to "
+                         f"the number of modes ({m}); got {subset_size!r}")
+    subset_size = int(subset_size)
     names = (list(mode_names) if mode_names is not None
              else [f"mode{i+1}" for i in range(m)])
     out = []
