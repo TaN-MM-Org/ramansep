@@ -1,5 +1,137 @@
 # Changelog
 
+## 0.14.0 (2026-10-17)
+
+Region means and contrasts with a full error budget, correlated shift
+errors, error bars for shot noise, a faster `fit_map`, two tutorials,
+and three fixes.
+
+### Added
+
+- `region_mean(coefficients, dw1, dw2, sigma1, sigma2, mask, *,
+  shift_correlation=None, ref_sigma=None)` and
+  `region_contrast(coefficients, dw1, dw2, sigma1, sigma2, mask_a,
+  mask_b, *, shift_correlation=None)`, returning a `RegionEstimate`:
+  the mean strain and density of a map region, or region A minus
+  region B, with the error split into shift noise (averages down over
+  pixels), calibration (from a two-mode `CalibrationResult`; does not
+  average down) and reference frequencies (`ref_sigma`; does not
+  average down, and cancels exactly in a contrast). `region_mean` also
+  tests whether the pixels agree within their error bars (chi-square
+  with 2 (N - 1) degrees of freedom, the same in shift space and in
+  (strain, density) space) and reports the pixel spread. Validated
+  against the mean and per-pixel covariances of
+  `SeparationModel.invert`, `separation_with_calibration`, finite
+  differences of a re-solve, and seeded Monte Carlo over 400 trials
+  that repeat the calibration, the map noise and the reference error
+  (spread within 12 % of the reported error bars). Propagation as in
+  JCGM 100:2008 (GUM), 5.2.2, Eq. (13).
+- `SeparationModel.invert(..., shift_correlation=None)`: the
+  correlation of the two shift errors (from a joint fit) enters the
+  error bars through the full 2 x 2 shift covariance. Zero gives the
+  old result bit for bit. On 400 repeats of two overlapping E' + A'1
+  peaks the density error bar without the correlation is 27 % above
+  the actual spread; with it, it matches (tutorial 2).
+  `separation_with_calibration` passes it through.
+- `MapFitResult.shift_correlation`: the correlation of the two shift
+  errors per pixel (the joint fit's value, 0 for separate window fits,
+  NaN where masked).
+- `noise="varying"` in `fit_lorentzian`, `fit_two_modes` and
+  `fit_map`: error bars from the heteroskedasticity-consistent
+  ("sandwich") covariance of H. White, Econometrica 48, 817 (1980),
+  for spectra whose noise level changes along the axis, as shot noise
+  does. Fitted values are unchanged. On 600 seeded Poisson spectra the
+  center scatter is 1.7 times the default error bar and within 10 % of
+  the new one; checked also against an independent finite-difference
+  sandwich (relative 1e-5). The default, `noise="constant"`, is
+  unchanged.
+- README example 18 (shot noise) and a "Tutorials" section.
+
+### Fixed
+
+- `calibrate_lever_arms`, `plan_calibration` and `design_references`
+  judged identifiability from the raw singular values of the design,
+  which depends on the units. Before: the six-state design of the
+  tests with the density in cm^-2 raised `ValueError: reference states
+  are collinear ...` (`plan_calibration` returned
+  `identifiable=False`). After: it gives the arms of the fit in 1e13
+  cm^-2, rescaled (A'1 density arm -2.2798e-13 per cm^-2 against
+  -2.2798 per 1e13 cm^-2; relative 1e-10). The test is now made on the
+  design with unit-length columns (also with `fit_offset=True`). Test:
+  `test_calibration_does_not_depend_on_the_density_unit`,
+  `test_planning_does_not_depend_on_the_density_unit`.
+- `bayesian_map_inversion(..., fill_masked=True)`: the same unit
+  dependence in its pooled-information check. Before: a lever-arm
+  matrix with the density column in cm^-2 raised `ValueError: ... their
+  pooled information matrix is singular`. After: the filled pixel's
+  density is 0.50185398920 (x 1e13 cm^-2), against 0.50185398920 with
+  the density in 1e13 cm^-2 (largest relative difference over the map
+  2.5e-7). Test:
+  `test_bayesian_fill_masked_does_not_depend_on_the_density_unit`.
+- `compare_mode_sets` with `subset_size` 0, 1 or larger than the
+  number of modes returned `[]`; it now raises `ValueError` (also for
+  a non-integer size, which raised `TypeError`). Test:
+  `test_compare_mode_sets_refuses_a_subset_size_it_cannot_rank`.
+- Documentation: the `fitting` module, the README "What is in the
+  package" and "Limits" said the peak-fit error bars are reliable when
+  the residuals are dominated by uncorrelated noise. With shot noise
+  (uncorrelated, but larger on the peak than on the background) they
+  are too small: by a factor of 1.7 for a peak 400 counts high on a
+  30-count background (README example 18: scatter 0.0405 cm^-1, error
+  bar 0.0239 cm^-1). The text now states the same-noise-level
+  assumption, and `noise="varying"` is the remedy.
+
+### Changed
+
+- New refusals: `shift_correlation` outside [-1, 1], infinite, given
+  without both sigmas, or of a shape that does not fit the map; an
+  unknown `noise` name; the region refusals listed in the README.
+- Type hints for the new `noise` parameters and return types for
+  `compare_mode_sets` and `separation_with_calibration`.
+- Results of all existing calls are unchanged: a set of 35 calls
+  covering fitting (both baselines, joint and separate, `min_snr`,
+  `fwhm_range`, Voigt), `fit_map`, the two-mode, multimode, three-cause
+  and Bayesian inversions (scalar, per-pixel, `fill_masked`),
+  calibration (all sigma forms, with and without offset), planning,
+  both propagation tools and the thermometer gives bit-identical
+  output under 0.13.1 and 0.14.0, and README examples 1 to 17 print
+  the same output.
+
+### Performance
+
+- `fit_map` fits all pixels of a block together: the
+  Levenberg-Marquardt loop of `fit_lorentzian` (and of the joint fit)
+  is stacked over pixels, with each per-pixel matrix product, solve
+  and inverse made by the same NumPy call as before, so every output
+  (shifts, error bars, `ok`, reason codes) is bit for bit that of the
+  0.13.1 per-pixel loop. The test keeps that loop as the reference and
+  checks equality on noisy maps with peak-free and broken pixels, both
+  baselines, joint and separate fits, and `min_snr`/`fwhm_range`.
+  Measured on a 30 x 40 map with 281 points per spectrum (median of 7
+  interleaved runs, same machine, `OMP_NUM_THREADS=1`): 6.6 times
+  faster with the constant baseline (1.07 s to 0.16 s), 5.4 times with
+  the linear baseline (1.04 s to 0.19 s) and 4.2 times with
+  `joint=True` (2.16 s to 0.51 s). The machine was shared; repeated
+  measurements gave 5.2 to 7.2, 4.7 to 6.8 and 3.3 to 4.2 times. Memory stays bounded (blocks of 1024 pixels).
+
+### Tutorials
+
+- `examples/tutorial_edge_charge.py`: calibration from an unknown
+  starting state, `fit_map` on a ribbon map, then interior and edge
+  means and the edge-minus-interior contrast with the full error
+  budget (about 1 s).
+- `examples/tutorial_overlapping_peaks.py`: separate-window bias,
+  joint fit, inversion with and without the shift correlation, and a
+  400-repeat check of the error bars (about 1 s).
+- Their output is pasted at the top of each script and in the README;
+  a test runs both and checks it.
+
+### Tests
+
+- New `tests/test_v014.py` (22 tests). Test count: 114 -> 136. The
+  full suite also passes with the oldest allowed dependencies (NumPy
+  1.22.0, SciPy 1.8.0) on Python 3.9.
+
 ## 0.13.1 (2026-10-10)
 
 Citation corrections and packaging.

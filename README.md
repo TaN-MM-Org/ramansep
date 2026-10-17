@@ -18,7 +18,9 @@ covers the steps around that:
 - How do I read the text files my instrument exports, and get the
   peak shifts out of the measured spectra? Which pixels failed or
   carry no peak at all?
-- What if two peaks overlap?
+- What if two peaks overlap, so that their fitted positions are
+  correlated? Are my error bars right when the noise grows with the
+  counts (shot noise)?
 - Which pair of peaks separates the two causes best?
 - With three or more peaks, does "strain plus charge" actually explain
   what I measured, pixel by pixel?
@@ -30,6 +32,9 @@ covers the steps around that:
 - How much of my final error bar comes from that calibration, with two
   peaks or more?
 - What if laser heating also shifts the peaks?
+- What are the mean strain and charge of a region, and how much more
+  charge sits at an edge than inside, with an error bar that counts
+  every source of error?
 
 The results are checked by automated tests against independent
 calculations and exact limits (see
@@ -42,6 +47,7 @@ that says why, rather than returning a number that looks fine.
 - [A short guide to the words used here](#a-short-guide-to-the-words-used-here)
 - [Install, requirements and units](#install-requirements-and-units)
 - [Examples](#examples) (each with the output it prints)
+- [Tutorials](#tutorials) (end-to-end scripts in `examples/`)
 - [What is in the package](#what-is-in-the-package)
 - [Cited coefficient sets](#cited-coefficient-sets)
 - [When it refuses, and why](#when-it-refuses-and-why)
@@ -145,10 +151,11 @@ Units and signs:
 ## Examples
 
 Each example below runs as written, and the output shown is what it
-printed with ramansep 0.13.0. Unless a value is said to come from a
+printed with ramansep 0.14.0. Unless a value is said to come from a
 cited source, it is an illustrative value chosen for the example. The
 repository also has a longer demo, `examples/synthetic_map.py`, that
-inverts a noisy synthetic 128 x 128 map and plots it with matplotlib.
+inverts a noisy synthetic 128 x 128 map and plots it with matplotlib,
+and two end-to-end [tutorials](#tutorials).
 
 ### 1. Strain and charge at two spots of a MoS2 ribbon
 
@@ -967,6 +974,122 @@ straight line (not only a line through zero), and the fit needs one
 more reference point. `plan_calibration` and `repeats_for_sigma` take
 `fit_offset=True` too, so the error bars can be planned in advance.
 
+### 18. Error bars when the noise grows with the counts
+
+```python
+import numpy as np
+import ramansep as rs
+
+# 300 repeats of one illustrative peak (404 cm^-1, FWHM 6 cm^-1, 400 counts
+# high on a 30-count background) with shot noise: Poisson counts.
+x = np.linspace(380.0, 430.0, 201)
+clean = rs.lorentzian(x, 404.0, 6.0, 400.0, 30.0)
+rng = np.random.default_rng(3)
+spectra = rng.poisson(clean, (300, x.size)).astype(float)
+
+centers, err_constant, err_varying = [], [], []
+for y in spectra:
+    fit = rs.fit_lorentzian(x, y)                       # default error bars
+    centers.append(fit.center)
+    err_constant.append(fit.center_sigma)
+    err_varying.append(rs.fit_lorentzian(x, y, noise="varying").center_sigma)
+
+print(f"actual scatter of the center: {np.std(centers, ddof=1):.4f} cm^-1")
+print(f'error bar, noise="constant":  {np.median(err_constant):.4f} cm^-1')
+print(f'error bar, noise="varying":   {np.median(err_varying):.4f} cm^-1')
+```
+
+```
+actual scatter of the center: 0.0405 cm^-1
+error bar, noise="constant":  0.0239 cm^-1
+error bar, noise="varying":   0.0388 cm^-1
+```
+
+With shot noise, the noise at each spectral point grows with the
+counts there, so the points on the peak are noisier than the points on
+the background. The default error bars (`noise="constant"`) assume one
+noise level for the whole window. That level is set mostly by the
+quiet background, so the error bar of the center comes out too small:
+here 0.024 cm^-1 against an actual scatter of 0.041 cm^-1.
+`noise="varying"` (new in 0.14.0) computes the error bars without that
+assumption, with the "sandwich" estimate of H. White, Econometrica 48,
+817 (1980), and matches the scatter. The fitted values are the same
+with either setting; only the error bars change. `fit_two_modes` and
+`fit_map` take `noise` too. On spectra whose noise is the same
+everywhere, the two settings agree on average (the tests check both
+cases).
+
+## Tutorials
+
+Two scripts in `examples/` go from "measured" data to a final result
+with error bars. The data are synthetic, made in each script with a
+fixed seed. Each script runs in about a second and prints the output
+shown here, which is also pasted at the top of the script. A test
+checks that they still print exactly this.
+
+### From a calibration and a map to the charge at an edge
+
+`python examples/tutorial_edge_charge.py` calibrates the A'1 and
+2LA(M) lever arms of MoS2 with a strain stage and a gate, starting from
+an unknown state (`fit_offset=True`). It then fits a 10 x 14 map of a
+ribbon whose outer two columns on each side carry extra electrons
+(`fit_map` with `min_snr=3`; row 0 lies off the flake), and compares
+the edge columns with the interior (`region_mean`,
+`region_contrast`). The true lever arms are those of `mos2_a1_2la()`;
+all other numbers are illustrative.
+
+```
+Calibration (8 reference states, offsets fitted):
+  A'1    strain arm  -5.00 +/- 0.27   density arm  -2.10 +/- 0.09
+  2LA(M) strain arm -21.06 +/- 0.27   density arm  -0.05 +/- 0.09
+Map: 10 x 14 pixels, 14 masked (reasons: {3: 10, 4: 1, 5: 3})
+Interior (90 pixels): strain +0.0992 +/- 0.0144 %, density +0.028 +/- 0.103 (1e13 cm^-2)
+  error parts, strain : shifts 0.0001, calibration 0.0013, reference 0.0143
+  error parts, density: shifts 0.0007, calibration 0.0131, reference 0.1018
+  homogeneity: chi2 = 201.6 for 178 dof, p = 0.11
+Edge (36 pixels): strain +0.0987 +/- 0.0144 %, density +0.270 +/- 0.103 (1e13 cm^-2)
+Edge minus interior: strain -0.0005 +/- 0.0010 %, density +0.242 +/- 0.010 (1e13 cm^-2)
+  error parts, density: shifts 0.0013, calibration 0.0102, reference 0 (cancels)
+  = 2.42e+12 +/- 1.0e+11 electrons per cm^2 more at the edge (true: 2.30e+12)
+```
+
+The mean density of each region carries an error bar of 0.103 (in
+1e13 cm^-2). Almost all of it comes from the uncertainty of the
+pristine reference frequencies (0.2 and 0.3 cm^-1), which shifts
+every pixel alike. In the difference, edge minus interior, that part
+cancels exactly, and the calibration part shrinks with the size of
+the difference. The extra charge at the edge comes out as
+2.42e12 +/- 0.10e12 cm^-2 (true value 2.30e12), about ten times better
+known than either mean. The homogeneity check finds no variation
+inside the interior beyond the noise (p = 0.11).
+
+### Two overlapping peaks and correlated errors
+
+`python examples/tutorial_overlapping_peaks.py` uses the MoS2 E' and
+A'1 peaks with the lever arms of `mos2_eprime_a1()`, made broad (FWHM
+14 and 16 cm^-1, illustrative) so that they overlap.
+
+```
+True shifts: E' -0.497, A'1 -0.690 cm^-1
+Separate windows: E' +1.427 +/- 0.133, A'1 -1.631 +/- 0.080 cm^-1
+Joint fit:        E' -0.506 +/- 0.064, A'1 -0.650 +/- 0.055 cm^-1, correlation +0.41
+Error bars of one spectrum, independent errors vs with the correlation:
+  strain  0.0163 vs 0.0154 %
+  density 0.0332 vs 0.0261 (1e13 cm^-2)
+400 repeats: spread of the results vs the median error bars
+  strain  spread 0.0173, error bar 0.0176 (independent) / 0.0167 (correlated)
+  density spread 0.0284, error bar 0.0361 (independent) / 0.0287 (correlated)
+```
+
+Fitting each peak in its own window puts the tail of the other peak
+into the fit and moves the shifts by 1.9 and 0.9 cm^-1. The joint fit
+(`joint=True`) recovers them within their error bars and reports a
+correlation of +0.41 between the two fitted centers. Over 400 repeats,
+the density error bar that treats the two shifts as independent
+(0.036) is 27 % larger than the actual spread (0.028). Passing the
+correlation (`shift_correlation=`) gives 0.029, in agreement with the
+spread.
+
 ## What is in the package
 
 Every name below is exported from `ramansep` (its `__all__`). Each
@@ -976,11 +1099,15 @@ and conventions.
 **Two-mode inversion**
 
 - `SeparationModel(coefficients, condition_warn=30.0)` -- inverts two
-  shift maps (`invert(dw1, dw2, sigma1, sigma2)`) into a
-  `SeparationResult` with `strain`, `density`, `strain_sigma`,
+  shift maps (`invert(dw1, dw2, sigma1, sigma2, shift_correlation)`)
+  into a `SeparationResult` with `strain`, `density`, `strain_sigma`,
   `density_sigma`, `correlation` and `condition_number`; `forward`
   predicts shifts. Error bars are computed only when both `sigma1` and
-  `sigma2` are given.
+  `sigma2` are given. `shift_correlation` (new in 0.14.0) is the
+  correlation of the two shift errors, as a joint fit reports it; the
+  error bars then use the full 2 x 2 shift covariance (the GUM, JCGM
+  100:2008, 5.2.2, Eq. (13)). Leaving it out treats the two errors as
+  independent, as before.
 - `ModeCoefficients` -- the four lever arms of two modes plus the
   required `reference` string.
 
@@ -997,7 +1124,8 @@ and conventions.
   least squares for any number (two or more) of modes, with `chi2_map`,
   `p_value` and `dof`.
 - `compare_mode_sets(K, sigmas, mode_names, subset_size=2)` -- ranks
-  mode subsets by delivered variance.
+  mode subsets by delivered variance (`subset_size` from 2 to the
+  number of modes).
 - `bayesian_map_inversion(K, shifts, sigmas, lam_strain, lam_density,
   posterior_sigma, max_dense, fill_masked)`, `BayesianMapResult` --
   joint inversion of a whole map with a smoothness prior (a Gaussian Markov random
@@ -1010,19 +1138,25 @@ and conventions.
   and a least-squares fit by the Levenberg-Marquardt method (a standard
   step-by-step curve-fitting method), using exact formulas for the
   derivatives; `baseline="constant"` or `"linear"`. Parameter errors
-  are the standard linearised estimates, which are reliable when the
-  residuals are dominated by uncorrelated noise.
+  are the standard linearized estimates. With the default
+  `noise="constant"` they assume uncorrelated noise of the same size
+  at every spectral point; `noise="varying"` (new in 0.14.0) drops the
+  "same size" part, for shot-noise limited spectra (example 18).
 - `voigt`, `fit_voigt`, `VoigtFit` -- the Voigt shape, computed
   exactly with the Faddeeva function (a standard special function,
   `scipy.special.wofz`), normalised to peak height.
 - `fit_two_modes(x, y, window1, window2, ref1, ref2, baseline,
-  joint=False)` -- fits both peaks, each in its own non-overlapping
-  window, or with `joint=True` both together (example 13), and returns
-  `(dw1, dw2, sigma1, sigma2, fit1, fit2)`.
-- `fit_map(..., joint=False, min_snr=None, fwhm_range=None)`,
-  `MapFitResult`, `MASK_REASONS` -- the same at every pixel of a cube,
-  with masking of failed pixels and a per-pixel reason code
-  (example 12).
+  joint=False, noise="constant")` -- fits both peaks, each in its own
+  non-overlapping window, or with `joint=True` both together (example
+  13), and returns `(dw1, dw2, sigma1, sigma2, fit1, fit2)`.
+- `fit_map(..., joint=False, min_snr=None, fwhm_range=None,
+  noise="constant")`, `MapFitResult`, `MASK_REASONS` -- the same at
+  every pixel of a cube, with masking of failed pixels and a per-pixel
+  reason code (example 12). Since 0.14.0 it fits all pixels together,
+  5 to 7 times faster on a 1200-pixel map (3 to 4 times with
+  `joint=True`), with every number bit for bit as before, and returns
+  `shift_correlation`, the correlation of the two shift errors at each
+  pixel (0 for separate window fits, NaN where masked).
 - `load_spectrum_csv`, `save_spectrum_csv`, `load_map_csv`,
   `save_map_csv` -- the documented CSV formats of example 3.
 - `load_spectrum_table(path, usecols, delimiter)`,
@@ -1041,9 +1175,28 @@ and conventions.
 - `plan_calibration`, `design_references`, `repeats_for_sigma` --
   planning, example 7 (`plan_calibration` and `repeats_for_sigma` also
   take `fit_offset=True`).
-- `separation_with_calibration` -- example 8;
+- `separation_with_calibration` -- example 8 (it takes
+  `shift_correlation` too, since 0.14.0);
   `multimode_with_calibration` -- the same for three or more modes,
   example 15.
+
+**Regions of a map** (new in 0.14.0)
+
+- `region_mean(coefficients, dw1, dw2, sigma1, sigma2, mask,
+  shift_correlation=None, ref_sigma=None)`: the mean strain and
+  density over a region, with the error split into three parts: shift
+  noise (averages down over pixels), calibration (from a
+  `CalibrationResult`; one lever-arm matrix serves every pixel, so it
+  does not average down) and reference frequencies (`ref_sigma`, also
+  common to all pixels). It also checks whether the pixels agree with
+  one another within their error bars (`chi2`, `dof`, `p_value`) and
+  gives their spread (`strain_scatter`, `density_scatter`).
+- `region_contrast(coefficients, dw1, dw2, sigma1, sigma2, mask_a,
+  mask_b, shift_correlation=None)`: region A minus region B, for
+  example edge minus interior. The reference error cancels exactly, and
+  the calibration part scales with the difference.
+- `RegionEstimate`: the result of both. See the first
+  [tutorial](#tutorials).
 
 **Temperature**
 
@@ -1159,7 +1312,8 @@ docstring points to S. Sahoo et al., J. Phys. Chem. C 117, 9042
   a pixel with its own wavenumber axis or number of points;
 - calibration reference states lie on one line through the origin of
   the (strain, density) plane (the two lever arms cannot be told
-  apart), there are fewer than 2 of them, or fewer than 3 when no
+  apart; since 0.14.0 this is judged without regard to the units, so
+  a density in cm^-2 is accepted), there are fewer than 2 of them, or fewer than 3 when no
   `sigmas` are given; with `fit_offset=True`, the states lie on any
   one straight line, or there are fewer than 4 of them without
   `sigmas`; `sigmas` whose shape fits neither the points nor the
@@ -1167,12 +1321,27 @@ docstring points to S. Sahoo et al., J. Phys. Chem. C 117, 9042
 - `CalibrationResult.coefficients` is asked to package other than two
   modes, or `separation_with_calibration` gets such a calibration
   (`multimode_with_calibration` takes any number);
+- `shift_correlation` lies outside [-1, 1] or is infinite, is given
+  without both shift errors, or does not fit the map shape (new in
+  0.14.0; NaN marks a masked pixel);
+- `compare_mode_sets` gets a `subset_size` that is not a whole number
+  from 2 to the number of modes (before 0.14.0 it returned an empty
+  list);
+- a peak fit gets a `noise` setting other than `"constant"` or
+  `"varying"`;
+- `region_mean` or `region_contrast` gets a region that is not a
+  boolean map of the map's shape, a region without a usable pixel, a
+  shift error that is not positive in a pixel it uses, two regions that
+  share pixels, a `ref_sigma` that is not two finite, non-negative
+  numbers, a lever-arm matrix that is singular, or a calibration with
+  other than two modes; and a shift correlation of exactly +1 or -1,
+  for which the homogeneity check is undefined;
 - the anti-Stokes ratio is at or above the calibration constant, or a
   temperature, frequency, ratio or constant is not positive.
 
 ## How the results are checked
 
-114 automated tests run on every push and pull request, on Python 3.9,
+136 automated tests run on every push and pull request, on Python 3.9,
 3.10, 3.11, 3.12, 3.13 and 3.14, and once more on Python 3.9 with the
 oldest NumPy (1.22.0) and SciPy (1.8.0) the package allows. The
 numerical checks compare the package with an independent calculation,
@@ -1351,7 +1520,101 @@ parts, NumPy's own defaults apply, and these are listed too:
   reported covariance to 1e-15, and repeating the design r times
   divides it by r (relative 1e-12).
 
+**New in 0.14.0** (`tests/test_v014.py`, 22 tests)
+
+- Each fix below has a test that fails on 0.13.1 and passes now.
+  Calibration with the density in cm^-2 gives the same lever arms as
+  in 1e13 cm^-2, rescaled (relative 1e-10, with and without the
+  offset fit); planning gives the same error bars (relative 1e-10)
+  and `design_references` picks the same states; a truly collinear
+  design is still refused. `bayesian_map_inversion(...,
+  fill_masked=True)` with the density in cm^-2 agrees with the run in
+  1e13 cm^-2 to a relative 1e-5 (3e-7 in fact: a sparse solve with
+  columns 1e13 apart in scale loses some digits).
+- `fit_map` equals, bit for bit, the per-pixel loop over
+  `fit_two_modes` of 0.13.1 (kept in the test as the reference): all
+  four maps, `ok` and the reason codes, on a noisy map with peak-free
+  pixels and a broken pixel, with both baselines, with and without
+  `joint=True`, `min_snr` and `fwhm_range`. The result does not depend
+  on how many pixels are fitted together, and a spectrum that
+  `fit_lorentzian` refuses is masked with reason 2, as before.
+- `shift_correlation`: the error bars and the correlation equal
+  K^-1 S K^-T computed independently with the full shift covariance S
+  (relative 1e-12); zero correlation gives the old result bit for bit.
+  On 400 seeded noisy repeats of two overlapping peaks fitted jointly,
+  the measured correlation of the two shifts is within 0.12 of the
+  reported one (about 0.4), and the spread of the inverted density is
+  within 12 % of the error bar with the correlation, while the error
+  bar without it is more than 15 % too large.
+- `noise="varying"`: on 600 seeded shot-noise (Poisson) spectra of one
+  peak, the scatter of the fitted center is between 1.5 and 1.9 times
+  the default error bar and within 10 % of the `"varying"` one, with
+  identical fitted values. On 600-pixel maps of two overlapping peaks
+  fitted jointly, the same holds for both shifts (default more than
+  1.25 times too small); with noise of the same size everywhere both
+  settings are within 10 % of the scatter. The error bars equal the
+  sandwich formula built from an independent finite-difference
+  Jacobian (relative 1e-5), and `fit_map` equals `fit_two_modes` bit
+  for bit with this setting too.
+- `region_mean`: the mean equals the mean of the per-pixel
+  `SeparationModel.invert` maps (1e-14); the shift part equals the sum
+  of the per-pixel covariances over N^2 (relative 1e-12); the
+  reference part equals the error bar of one pixel with shift errors
+  (u1, u2) (relative 1e-12); the calibration part equals that of
+  `separation_with_calibration` at the mean shifts (relative 1e-10),
+  and the derivative behind it matches finite differences (relative
+  1e-6). The homogeneity chi-square equals an independent computation
+  in (strain, density) space (relative 1e-9); over 400 seeded uniform
+  regions its mean is within 3 standard errors of the degrees of
+  freedom and the share of p-values below 0.05 is within 0.035 of
+  0.05; a region with a real gradient gives p below 1e-6.
+- `region_contrast`: equals the difference of the two means (1e-13);
+  the shift parts add in quadrature (relative 1e-12); a common offset
+  added to all shifts leaves the contrast unchanged (1e-12) while each
+  mean moves by K^-1 times it; the calibration part equals that of
+  `separation_with_calibration` at the difference of the mean shifts
+  (relative 1e-10).
+- Over 400 seeded trials that repeat the calibration measurement and
+  fit, the map noise and the reference error, the spread of the region
+  mean and of the contrast is within 12 % of the reported total error
+  bars, the contrast is unbiased (within 4 standard errors) and its
+  density error bar is less than half that of the mean.
+- Both tutorials run and print exactly the output shown above and at
+  the top of each script.
+- Refusals fire for each case listed under
+  [When it refuses](#when-it-refuses-and-why) that is new in 0.14.0.
+
 ## Corrections in earlier versions
+
+**0.14.0 fixed two wrong refusals and one silent empty result, and
+corrected one documented claim** (before and after values from running 0.13.1 and 0.14.0 on the
+same input).
+
+- `calibrate_lever_arms`, `plan_calibration` and `design_references`
+  decided whether the reference states span the (strain, density)
+  plane from the raw singular values of the design. That test depends
+  on the units: with strain in percent and density in cm^-2 (values
+  near 1e12 to 1e13), a well-spread set of six reference states was
+  refused as "collinear" (`plan_calibration` returned
+  `identifiable=False`). The test is now made on the design with each
+  column scaled to unit length, which does not depend on the units.
+  The same data now give the lever arms of the fit in 1e13 cm^-2,
+  rescaled, to a relative 1e-10. Designs accepted before give the
+  same numbers as before.
+- `bayesian_map_inversion(..., fill_masked=True)` refused the same
+  kind of input (a lever-arm matrix whose density column is 1e13
+  times smaller) with "pooled information matrix is singular". The
+  check now uses the unit-free form of that matrix.
+- `compare_mode_sets` returned an empty list, without saying why, for
+  a `subset_size` of 0, 1 or more than the number of modes. It now
+  refuses such a value.
+- The documentation said the peak-fit error bars are reliable when the
+  residuals are dominated by uncorrelated noise. Shot noise is
+  uncorrelated, yet with it the error bars are too small, because the
+  noise is larger on the peak than on the background: by a factor of
+  1.7 for the peak of example 18. The text now says that the default
+  assumes the same noise level at every point, and `noise="varying"`
+  gives error bars that hold for shot noise.
 
 **0.13.0 fixed three silent failures** (before and after values from
 running 0.12.0 and 0.13.0 on the same input).
@@ -1452,16 +1715,23 @@ The full history is in [CHANGELOG.md](CHANGELOG.md).
   because estimating them would need noise assumptions this package
   does not make. Pixels it fills (`fill_masked=True`) are
   interpolations from their neighbours, not measurements.
-- Peak-fit error bars are linearised estimates; they are reliable when
-  the residuals are dominated by uncorrelated noise.
+- Peak-fit error bars are linearized estimates. The default assumes
+  uncorrelated noise of the same size at every spectral point; with
+  shot noise it gives error bars that are too small (example 18), and
+  `noise="varying"` should be used. Neither setting covers noise that
+  is correlated between neighboring points (for example after
+  smoothing or interpolation of the spectra). `fit_voigt` has the
+  default error bars only.
 - By default `fit_two_modes` fits each peak in its own window, and the
-  tail of the other peak can shift a fitted centre (by 0.08 cm^-1 in
+  tail of the other peak can shift a fitted center (by 0.08 cm^-1 in
   example 13; the round-trip test allows 5e-3 cm^-1). `joint=True`
   removes this, provided no third peak lies anywhere from the lower
   edge of the first window to the upper edge of the second; it fits
-  Lorentzians only (no joint Voigt fit). The inversion then ignores the
-  correlation between the two fitted centres (reported as
-  `center_correlation`).
+  Lorentzians only (no joint Voigt fit). The two fitted centers are
+  then correlated; pass that correlation to the two-mode inversion with
+  `shift_correlation` (new in 0.14.0). `MultiModeModel`,
+  `ThreeCauseModel` and `bayesian_map_inversion` still treat the shift
+  errors of different modes as independent.
 - `min_snr` and `fwhm_range` in `fit_map` are off by default and their
   values are your choice; the package does not decide what counts as
   "no peak" for your data.
@@ -1476,6 +1746,13 @@ The full history is in [CHANGELOG.md](CHANGELOG.md).
   common to all pixels, so it does not average down over a map. The
   chi-square check of `multimode_with_calibration` ignores the
   calibration uncertainty.
+- `region_mean` and `region_contrast` work with two modes. They treat
+  the shift noise of different pixels as independent, which holds for
+  separately measured spectra but not after spatial smoothing, and not
+  for the output of `bayesian_map_inversion`. The mean is the plain
+  average over the pixels used. When the homogeneity check fails, the
+  spread between pixels is real variation: the error bar then
+  describes the average of those pixels, not a typical pixel.
 
 ## Where it comes from
 
