@@ -84,7 +84,12 @@ def test_fit_map_refuses_a_non_finite_reference():
     d1, d2, s1, s2, _, _ = rs.fit_two_modes(x, cube[1, 2], (395, 415),
                                             (440, 465), 404.7, 452.0)
     assert res.ok.all()
-    assert res.dw1[1, 2] == d1 and res.dw2[1, 2] == d2
+    # (exactly equal before v0.15; fit_map now stacks the fits, which
+    # another CPU may round differently in the last digit, so the
+    # tolerances derived in test_v014.py: 1e-4 of the error bar for
+    # the shifts, a relative 1e-5 for the error bars)
+    assert abs(res.dw1[1, 2] - d1) <= 1e-4 * s1
+    assert abs(res.dw2[1, 2] - d2) <= 1e-4 * s2
     assert abs(d1 - 0.2) < 1e-2 and abs(d2 + 0.3) < 1e-2
 
 

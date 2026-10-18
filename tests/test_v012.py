@@ -121,8 +121,12 @@ def test_fit_map_joint_equals_fit_two_modes_joint():
         for j in range(3):
             d1, d2, s1, s2, _, _ = rs.fit_two_modes(
                 X, cube[i, j], W1, W2, 385.0, 404.0, joint=True)
-            assert (res.dw1[i, j], res.dw2[i, j]) == (d1, d2)
-            assert (res.sigma1[i, j], res.sigma2[i, j]) == (s1, s2)
+            # exactly equal before v0.15; within the tolerances derived
+            # in test_v014.py since (fit_map stacks the fits)
+            assert abs(res.dw1[i, j] - d1) <= 1e-4 * s1
+            assert abs(res.dw2[i, j] - d2) <= 1e-4 * s2
+            assert res.sigma1[i, j] == pytest.approx(s1, rel=1e-5, abs=0)
+            assert res.sigma2[i, j] == pytest.approx(s2, rel=1e-5, abs=0)
 
 
 # ------------------------------------------------------------------
@@ -450,7 +454,15 @@ def test_three_cause_model_keeps_nan_pixels_local():
                  "p_value"):
         got, ref = getattr(res, name), getattr(clean, name)
         assert np.all(np.isnan(got[bad]))
-        assert np.array_equal(got[~bad], ref[~bad])
+        # exactly equal before v0.15; the two runs solve stacks of
+        # different length, which another CPU may round differently in
+        # the last digit. The 3 x 3 systems have a condition number of
+        # 1.3e5 here, so rounding may change a result by about
+        # eps * 1.3e5 = 3e-11 of the largest component: a relative 1e-9
+        # (and 1e-9 of each map's largest value) allows a margin of 30
+        scale = np.nanmax(np.abs(ref))
+        np.testing.assert_allclose(got[~bad], ref[~bad], rtol=1e-9,
+                                   atol=1e-9 * scale)
 
 
 def test_new_refusals():

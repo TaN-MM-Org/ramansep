@@ -55,8 +55,14 @@ def test_fit_map_valid_configuration_unchanged():
     assert res.n_masked == 0 and res.ok.all()
     d1, d2, s1, s2, _, _ = rs.fit_two_modes(x, cube[1, 0], W1, W2,
                                             REF1, REF2)
-    assert res.dw1[1, 0] == d1 and res.dw2[1, 0] == d2
-    assert res.sigma1[1, 0] == s1 and res.sigma2[1, 0] == s2
+    # (exactly equal before v0.15; fit_map now stacks the fits, which
+    # another CPU may round differently in the last digit, so the
+    # tolerances derived in test_v014.py: 1e-4 of the error bar for
+    # the shifts, a relative 1e-5 for the error bars)
+    assert abs(res.dw1[1, 0] - d1) <= 1e-4 * s1
+    assert abs(res.dw2[1, 0] - d2) <= 1e-4 * s2
+    assert res.sigma1[1, 0] == pytest.approx(s1, rel=1e-5, abs=0)
+    assert res.sigma2[1, 0] == pytest.approx(s2, rel=1e-5, abs=0)
 
 
 def test_bayesian_refuses_rank_deficient_K():

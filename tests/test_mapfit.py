@@ -41,8 +41,14 @@ def test_fit_map_round_trip_and_pixelwise_equality():
     # every pixel equals a direct fit_two_modes call on its spectrum
     d1, d2, s1, s2, _, _ = rs.fit_two_modes(x, cube[2, 3], W1, W2,
                                             REF1, REF2)
-    assert res.dw1[2, 3] == d1 and res.dw2[2, 3] == d2
-    assert res.sigma1[2, 3] == s1 and res.sigma2[2, 3] == s2
+    # (exactly equal before v0.15; fit_map now stacks the fits, which
+    # another CPU may round differently in the last digit, so the
+    # tolerances derived in test_v014.py: 1e-4 of the error bar for
+    # the shifts, a relative 1e-5 for the error bars)
+    assert abs(res.dw1[2, 3] - d1) <= 1e-4 * s1
+    assert abs(res.dw2[2, 3] - d2) <= 1e-4 * s2
+    assert res.sigma1[2, 3] == pytest.approx(s1, rel=1e-5, abs=0)
+    assert res.sigma2[2, 3] == pytest.approx(s2, rel=1e-5, abs=0)
     # the maps invert back to the generating truth
     inv = rs.SeparationModel(coeffs).invert(res.dw1, res.dw2,
                                             res.sigma1, res.sigma2)
@@ -64,7 +70,12 @@ def test_fit_map_masks_bad_pixels_without_contaminating_neighbors():
     assert not res.ok[1, 1] and res.n_masked == 1
     assert np.isnan(res.dw1[1, 1]) and np.isnan(res.sigma2[1, 1])
     good = res.ok
-    assert np.array_equal(res.dw1[good], clean.dw1[good])
+    # the other pixels are fitted in a smaller stack (exactly equal
+    # before v0.15; within 1e-4 of the error bar since, see test_v014.py)
+    assert np.all(np.abs(res.dw1[good] - clean.dw1[good])
+                  <= 1e-4 * clean.sigma1[good])
+    assert np.all(np.abs(res.dw2[good] - clean.dw2[good])
+                  <= 1e-4 * clean.sigma2[good])
     # per-pixel inversion carries the mask through untouched
     inv = rs.SeparationModel(coeffs).invert(res.dw1, res.dw2)
     assert np.isnan(inv.strain[1, 1])

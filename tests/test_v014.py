@@ -9,9 +9,11 @@ Fixed (each test fails on 0.13.1):
 * `compare_mode_sets` returned an empty list for a subset size below 2
   or above the number of modes.
 
-Performance: `fit_map` fits all pixels together; every output is bit for
-bit that of the old per-pixel loop over `fit_two_modes`, kept here as
-the reference.
+Performance: `fit_map` fits all pixels together; its outputs agree with
+those of the old per-pixel loop over `fit_two_modes`, kept here as the
+reference (exactly on the machine of 0.14; within stated tolerances,
+derived at TOL_SHIFT, since v0.15, because another CPU may round the
+stacked and the single fits differently in the last digit).
 
 Added: correlated shift errors in the two-mode inversion
 (`shift_correlation`, `MapFitResult.shift_correlation`), and region
@@ -23,6 +25,7 @@ Tutorials: both scripts under examples/ run and print the numbers
 pasted in the README.
 """
 import os
+import re
 import subprocess
 import sys
 
@@ -138,7 +141,7 @@ def test_compare_mode_sets_refuses_a_subset_size_it_cannot_rank():
 
 
 # ----------------------------------------------------------------------
-# Performance: fit_map is bit for bit the old per-pixel loop
+# Performance: fit_map agrees with the old per-pixel loop
 
 
 def _reference_fit_map(x, cube, w1, w2, ref1, ref2, baseline, joint,
@@ -187,7 +190,7 @@ def _reference_fit_map(x, cube, w1, w2, ref1, ref2, baseline, joint,
     return out, ok, reason
 
 
-def _noisy_map(seed=11, H=6, W=8):
+def _noisy_map(seed=11, H=6, W=8, with_peaks=False):
     rng = np.random.default_rng(seed)
     x = np.linspace(360.0, 430.0, 141)
     c1 = 385 + 0.5 * rng.standard_normal((H, W))
@@ -197,45 +200,106 @@ def _noisy_map(seed=11, H=6, W=8):
                                + rs.lorentzian(x, c2[..., None], 7.0, 80.0))
             + 10.0 + 0.05 * (x - 395.0) + rng.normal(0, 3.0, (H, W, x.size)))
     cube[1, 2, 7] = np.nan
+    if with_peaks:                     # (new in v0.15) which pixels carry peaks
+        return x, cube, peak == 1.0
     return x, cube
+
+
+# Tolerances for comparing the stacked fits of `fit_map` with the
+# single-spectrum fits (since v0.15; before, these tests demanded exact
+# equality). The arithmetic is the same, but the stacked and the single
+# matrix products are different NumPy/BLAS calls, which another CPU may
+# round differently in the last digit. A converged fit stops once a step
+# lowers the cost C by less than a relative 1e-12. Near the minimum C*,
+# C - C* = dp^T J^T J dp, and for each parameter
+# (dp_i / sigma_i)^2 <= (C - C*) / s^2 with s^2 = C* / (n - p), so a stop
+# one step earlier or later moves a parameter by at most about
+# sqrt(1e-12 (n - p)) = 1e-6 sqrt(n - p) of its error bar: below 4e-5
+# here (n <= 401). Centers (shifts) are therefore compared to 1e-4 of
+# their error bar, error bars to a relative 1e-5 and the correlation to
+# 1e-5. Mask decisions are integers and are compared exactly, on pixels
+# that carry peaks, whose decisions are far from every threshold (checked
+# below). Pixels WITHOUT a peak are not compared: their fits to pure noise
+# can run away (joint fits reach centers of 1e20 to 1e76 cm^-1) along a
+# chaotic path, and changing the counts of the map by 1 ulp (a relative
+# 2.2e-16) already flips the reason code of 1 or 2 of the 18 peak-free
+# pixels of this map between 3 and 4 (measured in v0.15), so no
+# implementation-independent result exists for them.
+TOL_SHIFT = 1e-4                       # times the error bar
+TOL_SIGMA = 1e-5                       # relative
+TOL_RHO = 1e-5                         # absolute
+
+
+def assert_same_fits(dw, sigma, ref_dw, ref_sigma, ok):
+    """Shift maps dw and their error bars sigma (tuples of maps) agree
+    with the reference ones within the tolerances above at the pixels
+    `ok`."""
+    for d, e, rd, re in zip(dw, sigma, ref_dw, ref_sigma):
+        assert np.all(np.abs(d[ok] - rd[ok]) <= TOL_SHIFT * re[ok])
+        np.testing.assert_allclose(e[ok], re[ok], rtol=TOL_SIGMA, atol=0)
 
 
 @pytest.mark.parametrize("baseline", ["constant", "linear"])
 @pytest.mark.parametrize("joint", [False, True])
-def test_fit_map_is_bit_for_bit_the_per_pixel_loop(baseline, joint):
-    x, cube = _noisy_map()
+def test_fit_map_agrees_with_the_per_pixel_loop(baseline, joint):
+    """The stacked fit_map against the 0.13.1 per-pixel loop over
+    fit_two_modes, kept here as the reference (exact equality before
+    v0.15; within the stated tolerances since, see TOL_SHIFT)."""
+    x, cube, peaks = _noisy_map(with_peaks=True)
     w1, w2 = (370.0, 394.5), (395.0, 420.0)
     kw = dict(min_snr=2.0, fwhm_range=(2.0, 14.0))
     ref, ok, reason = _reference_fit_map(x, cube, w1, w2, 385.0, 404.0,
                                          baseline, joint, **kw)
     res = rs.fit_map(x, cube, w1, w2, 385.0, 404.0, baseline, joint=joint,
                      **kw)
-    for got, want in ((res.dw1, ref["dw1"]), (res.dw2, ref["dw2"]),
-                      (res.sigma1, ref["s1"]), (res.sigma2, ref["s2"])):
-        assert np.array_equal(got, want, equal_nan=True)
-    assert np.array_equal(res.ok, ok) and np.array_equal(res.reason, reason)
-    assert res.n_masked == int((~ok).sum())
+    cmp = peaks.copy()
+    cmp[1, 2] = True                      # the broken pixel: reason 1
+    # the decisions at the pixels with peaks are far from the thresholds
+    for i, j in np.argwhere(peaks & ok):
+        _, _, _, _, f1, f2 = rs.fit_two_modes(x, cube[i, j], w1, w2, 385.0,
+                                              404.0, baseline=baseline,
+                                              joint=joint)
+        for f, w in ((f1, w1), (f2, w2)):
+            assert f.n_iter < 100 and f.converged
+            assert f.amplitude > 4.0 * f.amplitude_sigma
+            assert 3.0 < f.fwhm < 13.0 and w[0] + 3 < f.center < w[1] - 3
+    assert np.array_equal(res.ok[cmp], ok[cmp])
+    assert np.array_equal(res.reason[cmp], reason[cmp])
+    good = cmp & ok
+    assert good.sum() >= 30
+    assert_same_fits((res.dw1, res.dw2), (res.sigma1, res.sigma2),
+                     (ref["dw1"], ref["dw2"]), (ref["s1"], ref["s2"]), good)
+    for f in (res.dw1, res.dw2, res.sigma1, res.sigma2):
+        assert np.all(np.isnan(f[~res.ok])) and np.all(np.isfinite(f[res.ok]))
+    assert res.n_masked == int((~res.ok).sum())
     assert len(set(reason.ravel().tolist())) >= 3    # several mask reasons
     # the reported correlation: 0 for separate fits, the joint fit's own
     # value with joint=True, NaN where masked
     if joint:
-        i, j = np.argwhere(ok)[0]
+        i, j = np.argwhere(good)[0]
         f1 = rs.fit_two_modes(x, cube[i, j], w1, w2, 385.0, 404.0,
                               baseline=baseline, joint=True)[4]
-        assert res.shift_correlation[i, j] == f1.center_correlation
+        assert abs(res.shift_correlation[i, j]
+                   - f1.center_correlation) <= TOL_RHO
     else:
-        assert np.all(res.shift_correlation[ok] == 0.0)
-    assert np.all(np.isnan(res.shift_correlation[~ok]))
+        assert np.all(res.shift_correlation[res.ok] == 0.0)
+    assert np.all(np.isnan(res.shift_correlation[~res.ok]))
 
 
 def test_fit_map_results_do_not_depend_on_the_block_size(monkeypatch):
-    x, cube = _noisy_map(seed=3, H=5, W=7)
+    x, cube, peaks = _noisy_map(seed=3, H=5, W=7, with_peaks=True)
     a = rs.fit_map(x, cube, (370, 394.5), (395, 420), 385, 404, joint=True)
     monkeypatch.setattr(_mapfit, "_BLOCK", 4)
     b = rs.fit_map(x, cube, (370, 394.5), (395, 420), 385, 404, joint=True)
-    for f in ("dw1", "dw2", "sigma1", "sigma2", "shift_correlation"):
-        assert np.array_equal(getattr(a, f), getattr(b, f), equal_nan=True)
-    assert np.array_equal(a.reason, b.reason)
+    # pixels with peaks: same decisions, numbers within the tolerances
+    # (pixels without a peak: see TOL_SHIFT)
+    assert np.array_equal(a.reason[peaks], b.reason[peaks])
+    good = peaks & a.ok
+    assert good.sum() >= 20
+    assert_same_fits((b.dw1, b.dw2), (b.sigma1, b.sigma2),
+                     (a.dw1, a.dw2), (a.sigma1, a.sigma2), good)
+    assert np.all(np.abs(a.shift_correlation[good]
+                         - b.shift_correlation[good]) <= TOL_RHO)
 
 
 def test_fit_map_refuses_like_fit_lorentzian_on_a_repeated_axis_value():
@@ -394,13 +458,17 @@ def test_varying_noise_on_maps_and_its_independent_formula():
         for dw, sg in ((f.dw1, f.sigma1), (f.dw2, f.sigma2)):
             ratio = np.std(dw[f.ok], ddof=1) / np.sqrt(np.mean(sg[f.ok] ** 2))
             assert abs(ratio - 1.0) < 0.1
-    # bit for bit the single-spectrum path, at every pixel checked
+    # the single-spectrum path, at every pixel checked (exactly equal
+    # before v0.15; within the tolerances derived at TOL_SHIFT since)
     for i, j in ((0, 0), (7, 11), (19, 29)):
         d = rs.fit_two_modes(x, cube[i, j], w1, w2, 385.0, 404.0,
                              joint=True, noise="varying")
-        assert (d[0], d[1], d[2], d[3]) == (b.dw1[i, j], b.dw2[i, j],
-                                            b.sigma1[i, j], b.sigma2[i, j])
-        assert d[4].center_correlation == b.shift_correlation[i, j]
+        assert abs(d[0] - b.dw1[i, j]) <= TOL_SHIFT * d[2]
+        assert abs(d[1] - b.dw2[i, j]) <= TOL_SHIFT * d[3]
+        assert d[2] == pytest.approx(b.sigma1[i, j], rel=TOL_SIGMA, abs=0)
+        assert d[3] == pytest.approx(b.sigma2[i, j], rel=TOL_SIGMA, abs=0)
+        assert abs(d[4].center_correlation
+                   - b.shift_correlation[i, j]) <= TOL_RHO
     # the sandwich from an independent finite-difference Jacobian
     y = cube[3, 4][(x >= w2[0]) & (x <= w2[1])]
     xs = x[(x >= w2[0]) & (x <= w2[1])]
@@ -694,12 +762,14 @@ def _docstring_output(name):
     """The output pasted at the top of the tutorial's docstring."""
     with open(os.path.join(ROOT, "examples", name), encoding="utf-8") as fh:
         text = fh.read()
-    block = text.split("Output (ramansep 0.14.0):\n\n", 1)[1]
+    block = re.split(r"Output \(ramansep [0-9.]+\):\n\n", text,
+                     maxsplit=1)[1]
     return block.split('"""', 1)[0]
 
 
 @pytest.mark.parametrize("name", ["tutorial_edge_charge.py",
-                                  "tutorial_overlapping_peaks.py"])
+                                  "tutorial_overlapping_peaks.py",
+                                  "tutorial_edge_profile.py"])  # v0.15
 def test_tutorials_print_what_their_docstrings_and_the_readme_show(name):
     out = _run_tutorial(name)
     assert out == _docstring_output(name)
