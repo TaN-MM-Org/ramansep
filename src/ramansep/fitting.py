@@ -524,10 +524,18 @@ def _fit_two_lorentzians_joint(x, y, w1, w2, baseline, start1, start2,
 # same NumPy call as the single-spectrum code (a matrix product of J^T
 # with J, of J^T with r, of r with r, `numpy.linalg.solve` with one
 # right-hand side, `numpy.linalg.inv`), stacked over the spectra, and
-# every elementwise expression keeps its order of operations, so each
-# spectrum's numbers come out bit for bit as the single-spectrum fit
-# gives them. The tests assert that equality on noisy maps, with
-# pixels without a peak, for both baselines and both fit modes.
+# every elementwise expression keeps its order of operations. On the
+# machine where this was written each spectrum's numbers came out
+# identical to the single-spectrum fit; but the stacked products are
+# different NumPy/BLAS calls from the single ones, and another CPU may
+# round them differently in the last digit (a corrected claim in v0.15:
+# before, this said "bit for bit"). The tests compare the two within
+# tolerances derived from the stopping rule (test_v014.py, TOL_SHIFT):
+# 1e-4 of the error bar for the centers, a relative 1e-5 for the error
+# bars, on pixels that carry peaks. A fit to a pixel WITHOUT a peak can
+# run away along a chaotic path, which a last-digit change can send
+# elsewhere: such pixels are masked either way, but their reason code
+# (3 or 4) is not reproducible between machines.
 
 def _initial_guess_rows(x, Y):
     """`_initial_guess` for every row of Y, operation for operation."""
@@ -717,7 +725,8 @@ def _fit_joint_rows(x, Y, w1, w2, baseline, starts, max_iter=300,
     """`_fit_two_lorentzians_joint` for every row of Y (P, n) on the
     shared full axis x, with starts[k] = (PeakFit of mode 1, PeakFit of
     mode 2) from the separate window fits. Returns a list of P pairs of
-    `PeakFit`s, bit for bit those of the single-spectrum joint fit."""
+    `PeakFit`s, those of the single-spectrum joint fit up to rounding
+    (see the comment above `_initial_guess_rows`)."""
     lin = baseline == "linear"
     npar = 8 if lin else 7
     lo = min(w1[0], w2[0])

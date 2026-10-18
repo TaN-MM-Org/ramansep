@@ -23,6 +23,15 @@ model check); the test suite asserts that equivalence to machine
 precision.  :func:`compare_mode_sets` ranks candidate mode subsets by the
 uncertainty they deliver (D- and A-optimality of the information matrix)
 so the choice of modes becomes a computation instead of a habit.
+
+Since v0.15 the rank test that refuses a lever-arm matrix which cannot
+separate the causes is made on K with unit-length columns
+(`_has_full_column_rank`), so it does not depend on the units: before,
+a density in m^-2 made a well-separating K look like rank 1. Note that
+the A-optimality ranking of `compare_mode_sets` (the sum of the strain
+and density variances) does depend on the units, as any sum of
+quantities in different units does; the D-optimality value scales by
+the same factor for every subset and ranks them alike in any unit.
 """
 from __future__ import annotations
 
@@ -31,6 +40,25 @@ import itertools
 
 import numpy as np
 from scipy.stats import chi2
+
+
+def _has_full_column_rank(K) -> bool:
+    """True if the lever-arm matrix K (m, c) has rank c, judged without
+    regard to the units of its columns (new in v0.15).
+
+    Each column is divided by its Euclidean norm (a zero column stays
+    zero) before `numpy.linalg.matrix_rank` is applied with its default
+    tolerance. Rank does not depend on the scale of a column, so
+    neither may this test. Before v0.15 the rank was taken of K as
+    given: with the density in m^-2 (the SI unit; arms near 1e-17 cm^-1
+    per m^-2 against strain arms near 5 cm^-1 per percent)
+    `MultiModeModel`, `ThreeCauseModel` and `bayesian_map_inversion`
+    refused a well-separating matrix as "rank < 2", and
+    `compare_mode_sets` silently left out every subset."""
+    K = np.asarray(K, dtype=float)
+    norms = np.sqrt(np.sum(K * K, axis=0))
+    norms[norms == 0.0] = 1.0
+    return bool(np.linalg.matrix_rank(K / norms) == K.shape[1])
 
 
 def _stack_sigmas(sigmas, m, map_shape):
@@ -105,13 +133,13 @@ class MultiModeModel:
     for reporting.
     """
 
-    def __init__(self, K, mode_names=None):
+    def __init__(self, K, mode_names: list[str] | None = None) -> None:
         self.K = np.asarray(K, dtype=float)
         if self.K.ndim != 2 or self.K.shape[1] != 2 or self.K.shape[0] < 2:
             raise ValueError("K must have shape (m >= 2, 2)")
         if not np.all(np.isfinite(self.K)):
             raise ValueError("K must be finite")
-        if np.linalg.matrix_rank(self.K) < 2:
+        if not _has_full_column_rank(self.K):    # unit-free, since v0.15
             raise ValueError("lever-arm matrix has rank < 2: the modes "
                              "cannot separate strain from density")
         self.m = self.K.shape[0]
@@ -225,7 +253,7 @@ def compare_mode_sets(K, sigmas, mode_names=None,
     out = []
     for idx in itertools.combinations(range(m), subset_size):
         Ks = K[list(idx)]
-        if np.linalg.matrix_rank(Ks) < 2:
+        if not _has_full_column_rank(Ks):        # unit-free, since v0.15
             continue
         W = np.diag(1.0 / sigmas[list(idx)] ** 2)
         info = Ks.T @ W @ Ks

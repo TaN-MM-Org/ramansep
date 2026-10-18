@@ -24,9 +24,11 @@ neighbours (`fill_masked=True`, since v0.12).
 
 Since v0.14 the pixels are fitted together, in blocks, by a stacked
 version of the same Levenberg-Marquardt loop (5 to 7 times faster on
-a 1200-pixel map, 3 to 4 times with `joint=True`); every number is bit for
-bit what the per-pixel loop over `fit_two_modes` gave, which the tests
-assert. `MapFitResult.shift_correlation` carries the correlation of
+a 1200-pixel map, 3 to 4 times with `joint=True`), with the numbers of
+the per-pixel loop over `fit_two_modes` up to rounding (the tests allow
+1e-4 of the error bar in a shift and a relative 1e-5 in an error bar;
+before v0.15 this said "bit for bit", which holds on one machine but is
+not guaranteed on another CPU). `MapFitResult.shift_correlation` carries the correlation of
 the two shift errors for `SeparationModel.invert`, and `noise` selects
 how the error bars are computed (see `fit_lorentzian`).
 
@@ -34,7 +36,7 @@ Anchors asserted in the tests rather than stated: on a synthetic cube
 built from known strain and density maps through the forward model
 and Lorentzian lineshapes, fit_map -> invert returns the input maps;
 every unmasked pixel's result equals a direct `fit_two_modes` call on
-that pixel's spectrum exactly (same code path, asserted anyway); and
+that pixel's spectrum up to rounding (the stated tolerances); and
 a deliberately corrupted pixel is masked while its neighbors are
 recovered unchanged.
 """
@@ -181,8 +183,8 @@ def fit_map(wavenumber, cube, window1, window2, ref1: float, ref2: float,
     # Since v0.14 the separate window fits of all pixels run together
     # (`_fit_lorentzian_rows`, the algorithm of `fit_lorentzian` stacked
     # over pixels), in blocks so that memory stays bounded. Each pixel's
-    # numbers are bit for bit those of a `fit_two_modes` call on its
-    # spectrum, as before; the tests assert it.
+    # numbers are those of a `fit_two_modes` call on its spectrum up to
+    # rounding; the tests check it within stated tolerances.
     flat = c.reshape(H * W, x.size)
     finite = np.all(np.isfinite(flat), axis=1)
     reason.reshape(-1)[~finite] = 1

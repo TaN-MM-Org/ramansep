@@ -44,7 +44,7 @@ import dataclasses
 import numpy as np
 from scipy.stats import chi2
 
-from .multimode import _stack_shifts, _stack_sigmas
+from .multimode import _has_full_column_rank, _stack_shifts, _stack_sigmas
 
 __all__ = ["ThreeCauseModel", "ThreeCauseResult", "HC_OVER_KB_CM_K",
            "anti_stokes_ratio", "calibrate_anti_stokes",
@@ -102,14 +102,14 @@ class ThreeCauseModel:
     against dof = m - 3.
     """
 
-    def __init__(self, K, mode_names=None):
+    def __init__(self, K, mode_names: list[str] | None = None) -> None:
         self.K = np.asarray(K, dtype=float)
         if self.K.ndim != 2 or self.K.shape[1] != 3 or self.K.shape[0] < 3:
             raise ValueError("K must have shape (m >= 3, 3): three causes "
                              "need at least three modes")
         if not np.all(np.isfinite(self.K)):
             raise ValueError("K must be finite")
-        if np.linalg.matrix_rank(self.K) < 3:
+        if not _has_full_column_rank(self.K):    # unit-free, since v0.15
             raise ValueError("lever-arm matrix has rank < 3: these modes "
                              "cannot separate strain, density and "
                              "temperature")
