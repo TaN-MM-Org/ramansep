@@ -35,6 +35,8 @@ covers the steps around that:
 - What are the mean strain and charge of a region, and how much more
   charge sits at an edge than inside, with an error bar that counts
   every source of error?
+- How do strain and charge change with the distance from an edge, and
+  how many extra electrons sit along each micrometer of edge?
 
 The results are checked by automated tests against independent
 calculations and exact limits (see
@@ -131,6 +133,8 @@ pip install ramansep
 ```
 
 For development: clone the repository and `pip install -e .[test]`.
+The source distribution on PyPI also carries the tests and, since
+0.15.0, the tutorial scripts, so the whole test suite runs from it.
 
 It needs Python 3.9 or newer, NumPy 1.22 or newer and SciPy 1.8 or
 newer. `matplotlib` is optional (`pip install ramansep[plot]`) and is
@@ -151,11 +155,11 @@ Units and signs:
 ## Examples
 
 Each example below runs as written, and the output shown is what it
-printed with ramansep 0.14.0. Unless a value is said to come from a
+printed with ramansep 0.15.0. Unless a value is said to come from a
 cited source, it is an illustrative value chosen for the example. The
 repository also has a longer demo, `examples/synthetic_map.py`, that
 inverts a noisy synthetic 128 x 128 map and plots it with matplotlib,
-and two end-to-end [tutorials](#tutorials).
+and three end-to-end [tutorials](#tutorials).
 
 ### 1. Strain and charge at two spots of a MoS2 ribbon
 
@@ -392,9 +396,15 @@ real fields are smooth, as they are here by construction; you choose
 pixels are refused by default because the prior links every pixel to
 its neighbours; `fill_masked=True` fills them from their neighbours
 instead, and `sigmas` may be given per pixel (example 14). Exact
-per-pixel error bars (`posterior_sigma=True`) need a dense matrix
-inverse and are refused above `max_dense` = 4096 unknowns (two per
-pixel) unless you raise that limit.
+per-pixel error bars (`posterior_sigma=True`) are refused above
+`max_dense` = 4096 unknowns (two per pixel) unless you raise that
+limit. Since 0.15.0 they no longer need a dense matrix inverse: with
+one error bar per mode and no missing values they come from the
+structure of the pixel grid, about 100 times faster at 4050 unknowns,
+and otherwise from a sparse factorization, 2 to 4 times faster. The
+answer also no longer depends on the units of the lever arms (for
+example a density in cm^-2 instead of 1e13 cm^-2; before 0.15.0 that
+changed the maps in the fourth digit).
 
 ### 6. Measuring the lever arms on your own instrument
 
@@ -1021,7 +1031,7 @@ cases).
 
 ## Tutorials
 
-Two scripts in `examples/` go from "measured" data to a final result
+Three scripts in `examples/` go from "measured" data to a final result
 with error bars. The data are synthetic, made in each script with a
 fixed seed. Each script runs in about a second and prints the output
 shown here, which is also pasted at the top of the script. A test
@@ -1090,6 +1100,52 @@ the density error bar that treats the two shifts as independent
 correlation (`shift_correlation=`) gives 0.029, in agreement with the
 spread.
 
+### The profile across an edge, and the extra charge per micrometer of edge
+
+`python examples/tutorial_edge_profile.py` (new in 0.15.0) calibrates
+the A'1 and 2LA(M) lever arms of MoS2 on six reference states, fits a
+12 x 24 map of a ribbon 480 nm wide (20 nm per pixel), and averages
+strain and density in bins of the distance from the nearer edge
+(`region_profile`). It then integrates the extra density over that
+distance (`RegionProfile.integrated_excess`), which gives the extra
+electrons per unit length of edge. The true lever arms are those of
+`mos2_a1_2la()`; the profiles (0.5e13 cm^-2 extra electrons at the
+edge, falling off over 30 nm; tension relaxed by 0.05 % at the edge,
+over 40 nm) and all other numbers are illustrative.
+
+```
+Calibration (6 reference states): A'1 arms -4.86 +/- 0.21, -2.28 +/- 0.09; 2LA(M) arms -20.86 +/- 0.21, +0.05 +/- 0.09
+Map: 12 x 24 pixels, 0 masked
+Profile (distance from the nearest edge, nm):
+  bin   distance  pixels   strain (%)           density (1e13 cm^-2)   p
+  0-20      10.0      24   +0.0628 +/- 0.0144   +0.374 +/- 0.093   0.41
+  20-40     30.0      24   +0.0774 +/- 0.0143   +0.214 +/- 0.093   0.72
+  40-60     50.0      24   +0.0866 +/- 0.0143   +0.120 +/- 0.093   0.75
+  60-80     70.0      24   +0.0919 +/- 0.0143   +0.082 +/- 0.093   0.87
+  80-100    90.0      24   +0.0952 +/- 0.0143   +0.059 +/- 0.093   0.37
+  100-140  120.0      48   +0.0969 +/- 0.0143   +0.052 +/- 0.093   0.34
+  140-240  190.0     120   +0.1000 +/- 0.0143   +0.039 +/- 0.093   0.75
+Correlation of the density errors of the first and the last bin: +0.985
+Excess density integrated over the distance (1e13 cm^-2 nm):
+  13.60 +/- 0.72 (shifts 0.27, calibration 0.67, reference 0.00)
+  error bar if the bins were treated as independent: 14.13
+  = 1360 +/- 72 extra electrons per micrometer of edge (true: 1440)
+```
+
+Every bin carries an error bar of about 0.093 (in 1e13 cm^-2). Almost
+all of it (0.092) comes from the uncertainty of the reference
+frequencies, which shifts all bins alike. That is why the errors of the
+first and the last bin are correlated (+0.985), and why the profile has
+to carry the covariance between its bins. The integrated excess is a
+sum of differences, so the reference error cancels in it, and its
+error bar is 0.72. Adding up the error bars of the bins as if they were
+independent gives 14.13 instead, about twenty times too large. The
+result, 1360 +/- 72 extra electrons per micrometer of edge, lies 1.1
+error bars from the true value of the simulation (1440, from the true
+density map averaged over the same bins); most of its
+error comes from the calibration (0.67 of the 0.72). The homogeneity
+check (`p`) finds no variation inside any bin beyond the noise.
+
 ## What is in the package
 
 Every name below is exported from `ramansep` (its `__all__`). Each
@@ -1130,7 +1186,9 @@ and conventions.
   posterior_sigma, max_dense, fill_masked)`, `BayesianMapResult` --
   joint inversion of a whole map with a smoothness prior (a Gaussian Markov random
   field, Rue and Held 2005: a standard statistical way of saying that
-  each pixel is probably close to its four neighbours).
+  each pixel is probably close to its four neighbors). Since 0.15.0
+  its answer does not depend on the units of the lever arms, and its
+  exact error bars (`posterior_sigma=True`) are much faster (example 5).
 
 **From spectra to shifts**
 
@@ -1154,7 +1212,9 @@ and conventions.
   every pixel of a cube, with masking of failed pixels and a per-pixel
   reason code (example 12). Since 0.14.0 it fits all pixels together,
   5 to 7 times faster on a 1200-pixel map (3 to 4 times with
-  `joint=True`), with every number bit for bit as before, and returns
+  `joint=True`), with the same numbers as before up to rounding (on the
+  machine of 0.14.0 they were identical; another CPU may differ in the
+  last digits, see [How the results are checked](#how-the-results-are-checked)), and returns
   `shift_correlation`, the correlation of the two shift errors at each
   pixel (0 for separate window fits, NaN where masked).
 - `load_spectrum_csv`, `save_spectrum_csv`, `load_map_csv`,
@@ -1197,6 +1257,22 @@ and conventions.
   the calibration part scales with the difference.
 - `RegionEstimate`: the result of both. See the first
   [tutorial](#tutorials).
+- `region_profile(coefficients, dw1, dw2, sigma1, sigma2, coordinate,
+  bins, mask=None, shift_correlation=None, ref_sigma=None)` (new in
+  0.15.0): the mean strain and density in bins of a coordinate, for
+  example the distance from an edge, each bin with the error budget of
+  `region_mean`, plus the covariance between bins
+  (`RegionProfile.covariance`, split into its three parts). The bins
+  share the lever arms and the reference frequencies, so their errors
+  are correlated, and a sum over bins needs that covariance.
+  `RegionProfile.combination(strain_weights, density_weights)` gives
+  any weighted sum of the bins with its error parts (a
+  `LinearEstimate`); `integrated_excess(bulk, quantity="density",
+  widths=None)` gives the sum over the other bins of width times
+  (value minus the value of the `bulk` bin): across a straight edge,
+  the excess per unit length of edge, in which the reference error
+  cancels; `contrast(i, j)` gives bin i minus bin j as
+  `region_contrast` would. See the third [tutorial](#tutorials).
 
 **Temperature**
 
@@ -1275,7 +1351,10 @@ docstring points to S. Sahoo et al., J. Phys. Chem. C 117, 9042
   warning, not an error;
 - a multimode or map lever-arm matrix has rank below 2 (below 3 for
   `ThreeCauseModel`, which also needs at least three modes), or the
-  weighted problem is singular at some pixel;
+  weighted problem is singular at some pixel. Since 0.15.0 the rank is
+  judged without regard to the units of the columns; before, a density
+  in m^-2 made a good matrix look like rank 1, and `compare_mode_sets`
+  then left out every subset without saying so;
 - the shift maps do not match in shape or number;
 - a shift error (`sigmas`) is zero or negative in `MultiModeModel`,
   `ThreeCauseModel`, `bayesian_map_inversion`, the calibration and
@@ -1336,12 +1415,21 @@ docstring points to S. Sahoo et al., J. Phys. Chem. C 117, 9042
   numbers, a lever-arm matrix that is singular, or a calibration with
   other than two modes; and a shift correlation of exactly +1 or -1,
   for which the homogeneity check is undefined;
+- `region_profile` gets bins that are not at least two finite,
+  strictly increasing edges, a coordinate map of another shape than the
+  shift maps, or a bin without a usable pixel (choose wider bins), and
+  everything `region_mean` refuses; `RegionProfile.integrated_excess`
+  gets a `bulk` index that is not a bin, a `quantity` other than
+  `"strain"` or `"density"`, or widths that are not one finite number
+  per bin; `combination` gets weights that are not one finite number
+  per bin; `contrast` gets the same bin twice or an index that is not a
+  bin (all new in 0.15.0);
 - the anti-Stokes ratio is at or above the calibration constant, or a
   temperature, frequency, ratio or constant is not positive.
 
 ## How the results are checked
 
-136 automated tests run on every push and pull request, on Python 3.9,
+148 automated tests run on every push and pull request, on Python 3.9,
 3.10, 3.11, 3.12, 3.13 and 3.14, and once more on Python 3.9 with the
 oldest NumPy (1.22.0) and SciPy (1.8.0) the package allows. The
 numerical checks compare the package with an independent calculation,
@@ -1385,16 +1473,19 @@ parts, NumPy's own defaults apply, and these are listed too:
   at width 1e-3).
 - A sloped background biases a constant-baseline centre by more than
   3 of its sigmas; the linear baseline recovers the centre to 1e-6.
-- `fit_map` gives exactly (bit for bit) the `fit_two_modes` result at
-  the pixel checked; on a noiseless synthetic cube the maps invert back
-  to the truth (strain to 1e-4, density to 1e-3); a dead pixel is
-  masked and the other pixels' shifts are bit-identical to the clean
-  run; with noise, every strain error is below 5 error bars + 1e-3.
+- `fit_map` gives the `fit_two_modes` result at the pixel checked
+  (shifts to 1e-4 of their error bar, error bars to a relative 1e-5;
+  exactly equal before 0.15.0, see "New in 0.15.0" below); on a
+  noiseless synthetic cube the maps invert back to the truth (strain
+  to 1e-4, density to 1e-3); a dead pixel is masked and the other
+  pixels' shifts agree with the clean run to 1e-4 of their error bar;
+  with noise, every strain error is below 5 error bars + 1e-3.
 - The CSV save/load round trips are exact (bit-identical arrays).
 - Configuration errors in `fit_map` (unknown `baseline` name,
   reversed or overlapping windows, too few points in a window, a NaN
   in the wavenumber axis) are refused, and valid settings still give
-  the `fit_two_modes` result bit for bit (new in 0.11.1).
+  the `fit_two_modes` result (new in 0.11.1; to the tolerances above
+  since 0.15.0).
 
 **Multimode and map inversion**
 
@@ -1442,8 +1533,9 @@ parts, NumPy's own defaults apply, and these are listed too:
   a finite difference to a relative 1e-5.
 - With a NaN shift at one pixel and a NaN error bar at another,
   `ThreeCauseModel` returns NaN at exactly those two pixels and, at
-  every other pixel, bit-identical results to the run without them
-  (new in 0.12.0).
+  every other pixel, the results of the run without them (new in
+  0.12.0; to a relative 1e-9 since 0.15.0, set from the condition
+  number 1.3e5 of the systems).
 
 **New in 0.12.0** (`tests/test_v012.py`, 19 tests)
 
@@ -1459,7 +1551,8 @@ parts, NumPy's own defaults apply, and these are listed too:
   error is below 4 of its standard errors, and the measured
   correlation of the two centres is within 0.12 of the reported one
   (which is above 0.05). `fit_map(..., joint=True)` equals
-  `fit_two_modes(..., joint=True)` bit for bit at every pixel checked.
+  `fit_two_modes(..., joint=True)` at every pixel checked (to the
+  tolerances of `fit_map` above since 0.15.0).
 - `fit_map` checks: on 30 seeded peak-free spectra, without `min_snr`
   at least one pixel is kept and at least one is masked for a negative
   height; with `min_snr=3` none is kept. All 10 seeded spectra with
@@ -1531,13 +1624,15 @@ parts, NumPy's own defaults apply, and these are listed too:
   fill_masked=True)` with the density in cm^-2 agrees with the run in
   1e13 cm^-2 to a relative 1e-5 (3e-7 in fact: a sparse solve with
   columns 1e13 apart in scale loses some digits).
-- `fit_map` equals, bit for bit, the per-pixel loop over
-  `fit_two_modes` of 0.13.1 (kept in the test as the reference): all
-  four maps, `ok` and the reason codes, on a noisy map with peak-free
-  pixels and a broken pixel, with both baselines, with and without
-  `joint=True`, `min_snr` and `fwhm_range`. The result does not depend
-  on how many pixels are fitted together, and a spectrum that
-  `fit_lorentzian` refuses is masked with reason 2, as before.
+- `fit_map` equals the per-pixel loop over `fit_two_modes` of 0.13.1
+  (kept in the test as the reference): all four maps, `ok` and the
+  reason codes, on a noisy map with peak-free pixels and a broken
+  pixel, with both baselines, with and without `joint=True`, `min_snr`
+  and `fwhm_range`. The result does not depend on how many pixels are
+  fitted together, and a spectrum that `fit_lorentzian` refuses is
+  masked with reason 2, as before. (Since 0.15.0 this is checked to
+  stated tolerances, and not on the peak-free pixels; see "New in
+  0.15.0".)
 - `shift_correlation`: the error bars and the correlation equal
   K^-1 S K^-T computed independently with the full shift covariance S
   (relative 1e-12); zero correlation gives the old result bit for bit.
@@ -1554,8 +1649,8 @@ parts, NumPy's own defaults apply, and these are listed too:
   1.25 times too small); with noise of the same size everywhere both
   settings are within 10 % of the scatter. The error bars equal the
   sandwich formula built from an independent finite-difference
-  Jacobian (relative 1e-5), and `fit_map` equals `fit_two_modes` bit
-  for bit with this setting too.
+  Jacobian (relative 1e-5), and `fit_map` equals `fit_two_modes` with
+  this setting too (to the tolerances of `fit_map` above since 0.15.0).
 - `region_mean`: the mean equals the mean of the per-pixel
   `SeparationModel.invert` maps (1e-14); the shift part equals the sum
   of the per-pixel covariances over N^2 (relative 1e-12); the
@@ -1584,7 +1679,110 @@ parts, NumPy's own defaults apply, and these are listed too:
 - Refusals fire for each case listed under
   [When it refuses](#when-it-refuses-and-why) that is new in 0.14.0.
 
+**New in 0.15.0** (`tests/test_v015.py`, 11 tests, and changed tests)
+
+- Each fix below has a test that fails on 0.14.0 and passes now.
+  `bayesian_map_inversion` with the density in cm^-2, in m^-2 or in
+  units of 1e19 cm^-2 instead of 1e13 cm^-2 (the density column of K
+  divided by 1e13 or 1e17, or multiplied by 1e6) gives the maps and
+  error bars of an independent dense solve of the well-scaled
+  problem to 100 eps cond(A) relative (7.6e-13 for the test map;
+  0.14.0 was off by 6.1e-4 in cm^-2, refused m^-2 and was off by 8e-13
+  in units of 1e19 cm^-2). Matrices whose columns are within 2^10 in scale take the
+  0.14.0 code path, and equal the dense solve to the same tolerance.
+  `MultiModeModel`, `ThreeCauseModel`, `compare_mode_sets` and
+  `bayesian_map_inversion` accept a density in m^-2 and give the
+  results in 1e13 cm^-2, rescaled (relative 1e-10, and 1e-8 for the
+  three-cause model, whose systems have a condition number of 3.1e6 in
+  mixed units); a truly rank-deficient matrix is still refused
+  in any unit.
+- Posterior sigmas: the new computations equal the 0.14.0 dense
+  inverse, built independently in the test, to 100 eps cond(A)
+  relative, on maps with one row, one column, unequal smoothing
+  weights, `lam = 0` and a nearly collinear K (one error bar per mode),
+  and with per-pixel error bars and a missing value (sparse
+  factorization; also on random sparse matrices, with block sizes that
+  do not divide the size).
+- `region_profile`: each bin equals the mean of the per-pixel
+  `SeparationModel.invert` maps over its pixels (1e-14), its shift
+  covariance the sum of the per-pixel covariances over N^2 (relative
+  1e-12), and its error parts and homogeneity check those of
+  `region_mean` on that bin (relative 1e-12). The calibration
+  covariance between all pairs of bins equals the one built from a
+  finite-difference Jacobian of an independent re-solve with perturbed
+  lever arms (relative 1e-6); the reference covariance is
+  K^-1 diag(u1^2, u2^2) K^-T for every pair (relative 1e-12), and an
+  offset added to all shifts of one mode moves every bin by K^-1 times
+  it. A combination with random weights equals c^T C c from the stored
+  covariance (relative 1e-10). The integrated excess equals the sum
+  by hand (relative 1e-13); its reference part is zero to 1e-12 of a
+  bin's; its shift part equals a pixel-level linear form (relative
+  1e-10) and its calibration part finite differences of a re-solve
+  (relative 1e-6). `contrast(i, j)` equals `region_contrast` on the
+  two bins' pixels (relative 1e-12).
+- Over 300 seeded trials that repeat the calibration measurement and
+  fit, the map noise and the reference error, the spread of the
+  integrated excess and of a bin mean is within 15 % of the reported
+  error bars (measured: 3 % and 4 %), the excess is unbiased (within 4
+  standard errors), and the measured correlation of two bins' density
+  errors is within 0.1 of the reported one (0.988 against 0.987).
+- The third tutorial runs and prints exactly the output shown above
+  and at the top of the script.
+- Refusals fire for each case listed under
+  [When it refuses](#when-it-refuses-and-why) that is new in 0.15.0.
+- Changed tests: the comparisons of the stacked `fit_map` with the
+  single-spectrum fits (and of `ThreeCauseModel` runs on stacks of
+  different length) demanded exact equality. They passed on the
+  machine of 0.14.0, but the stacked and the single matrix products
+  are different NumPy/BLAS calls, which another CPU may round
+  differently in the last digit. They now use tolerances derived from
+  the stopping rule of the fit: a converged fit stops once a step
+  lowers the cost by less than a relative 1e-12, so a stop one step
+  earlier or later moves a parameter by at most about
+  1e-6 sqrt(n - p) of its error bar (n points, p parameters); shifts
+  are compared to 1e-4 of their error bar, error bars to a relative
+  1e-5. Pixels without a peak are no longer compared: a fit to pure
+  noise can run away (to centers of 1e20 to 1e76 cm^-1), and changing
+  the counts of the test map by one unit in the last place already
+  flips the mask reason of 1 or 2 of its 18 peak-free pixels between
+  3 ("did not converge") and 4 ("centre outside its window"). In 15
+  such trials on that map (with `min_snr=2`) these pixels stayed
+  masked every time; only the reason code changed.
+
 ## Corrections in earlier versions
+
+**0.15.0 fixed two unit dependences, and corrected one documented
+claim** (before and after values from running 0.14.0 and 0.15.0 on the
+same input).
+
+- `bayesian_map_inversion` gave maps that depended on the units of the
+  lever arms. With the density in cm^-2 (lever arms near 1e-13 cm^-1
+  per cm^-2) instead of 1e13 cm^-2, its sparse solve lost about four
+  digits: on the test map the density differed from an independent
+  dense solve by a relative 6.1e-4, and the strain by 1.4e-4 (less than
+  the error bars, but a result should not depend on the unit). It now
+  solves the same problem in a unit that differs by an exact power of
+  two and scales the answer back: the difference is now about 1e-15.
+  Lever arms whose columns are within a factor 2^10 in scale, such as
+  the shipped sets and those of the README examples, take the code path
+  of 0.14.0 and give the same maps; their posterior error bars, now
+  computed faster, agree with 0.14.0 to a relative 1e-15.
+- `MultiModeModel`, `ThreeCauseModel` and `bayesian_map_inversion`
+  refused a lever-arm matrix with the density in m^-2 (the SI unit;
+  arms near 1e-17 cm^-1 per m^-2) as "rank < 2" (or "rank < 3"), and
+  `compare_mode_sets` returned an empty list for it. The rank is now
+  judged on the matrix with unit-length columns, as `calibrate_lever_arms`
+  has done since 0.14.0; the results equal those in 1e13 cm^-2,
+  rescaled, to a relative 1e-14 (measured on the test inputs).
+- The documentation said that `fit_map` gives "bit for bit" the
+  numbers of the per-pixel loop over `fit_two_modes`, and the tests
+  demanded that. It held on the machine where 0.14.0 was made, but it
+  is not guaranteed on another CPU: the stacked and the single fits
+  use different NumPy/BLAS calls. The text now says "up to rounding",
+  and the tests use tolerances derived from the fit's stopping rule
+  (see "New in 0.15.0" above). On pixels without a peak, a fit to pure
+  noise can follow a chaotic path, so the reason code of such a masked
+  pixel (3 or 4) can differ between machines.
 
 **0.14.0 fixed two wrong refusals and one silent empty result, and
 corrected one documented claim** (before and after values from running 0.13.1 and 0.14.0 on the
@@ -1753,6 +1951,25 @@ The full history is in [CHANGELOG.md](CHANGELOG.md).
   average over the pixels used. When the homogeneity check fails, the
   spread between pixels is real variation: the error bar then
   describes the average of those pixels, not a typical pixel.
+- `region_profile` has the same limits: two modes, independent pixels,
+  plain averages, and a calibration part that is first order. Reading
+  `integrated_excess` as the excess per unit length of an edge assumes
+  a straight edge, a coordinate that is the distance from it, and bins
+  that cover the whole strip next to the edge; the bin mean stands for
+  the whole bin, so bins should be narrow where the profile changes
+  fast. The bulk bin must really be far from the edge: whatever excess
+  it still holds is subtracted from every other bin.
+- The A-optimality ranking of `compare_mode_sets` (the sum of the
+  strain and the density variance) depends on the units, as any sum of
+  quantities in different units does; with the density in cm^-2 the
+  density variance decides alone. The D-optimality value ranks the
+  subsets alike in any unit.
+- `fit_map` on pixels without a peak: a fit to pure noise can run away
+  along a path that a change in the last digit sends elsewhere. Such
+  pixels are nearly always masked, but whether the reason code says 3
+  ("did not converge") or 4 ("fitted centre outside its window") can
+  differ between machines, and so can, without `min_snr`, whether a
+  rare one is kept (`min_snr` is the remedy, example 12).
 
 ## Where it comes from
 

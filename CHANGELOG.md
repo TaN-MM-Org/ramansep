@@ -1,5 +1,158 @@
 # Changelog
 
+## 0.15.0 (2026-10-18)
+
+Profiles across an edge with the covariance between bins, the extra
+charge per unit length of edge, exact Bayesian error bars without a
+dense inverse, two unit dependences fixed, and CI-robust tests of the
+stacked map fit.
+
+### Added
+
+- `region_profile(coefficients, dw1, dw2, sigma1, sigma2, coordinate,
+  bins, *, mask=None, shift_correlation=None, ref_sigma=None)`,
+  returning a `RegionProfile`: the mean strain and density in bins of a
+  coordinate (for example the distance from an edge), each bin with the
+  error budget of `region_mean` (shift noise, calibration, reference
+  frequencies, homogeneity check), plus the covariance between all bins
+  (`covariance`, `covariance_shifts`, `covariance_calibration`,
+  `covariance_reference`, shape (R, 2, R, 2)). The bins share the lever
+  arms and the reference frequencies, so their errors are correlated:
+  calibration covariance sum_m (x_i^T C_m x_j) k_m k_m^T between bins i
+  and j, reference covariance K^-1 diag(u1^2, u2^2) K^-T for every
+  pair, no shift covariance (different pixels). Propagation as in JCGM
+  100:2008 (GUM), 5.2.2, Eq. (13), first order in the calibration.
+- `RegionProfile.combination(strain_weights, density_weights)` (any
+  weighted sum of the bins, with its error parts, as a new
+  `LinearEstimate`), `RegionProfile.integrated_excess(bulk,
+  quantity="density", widths=None)` (sum over the other bins of width
+  times value minus the bulk value: across a straight edge, the excess
+  per unit length of edge; the reference error cancels) and
+  `RegionProfile.contrast(i, j)` (bin i minus bin j, as
+  `region_contrast` gives it).
+- Validation: each bin equals the mean of the per-pixel
+  `SeparationModel.invert` maps (1e-14) and `region_mean` on that bin
+  (relative 1e-12); the cross-bin calibration covariance equals that
+  from a finite-difference Jacobian of an independent re-solve
+  (relative 1e-6); combinations equal c^T C c (relative 1e-10); the
+  integrated excess equals the sum by hand (1e-13), its shift part a
+  pixel-level linear form (1e-10) and its calibration part finite
+  differences (1e-6); `contrast` equals `region_contrast` (1e-12). Over
+  300 seeded trials that repeat calibration, map noise and reference
+  error, the spread of the excess and of a bin mean is within 15 % of
+  the error bars (measured 3 % and 4 %), and the measured correlation
+  of two bins (0.988) matches the reported one (0.987).
+- README: the profile and its refusals in the package list, a third
+  tutorial, test descriptions, corrections and limits.
+
+### Fixed
+
+- `bayesian_map_inversion` depended on the units of the lever arms.
+  Before: with the density column in cm^-2 (K / [1, 1e13]), the maps of
+  the test problem differed from an independent dense solve by a
+  relative 6.1e-4 (density) and 1.4e-4 (strain), and with K * [1, 1e6]
+  by 8e-13. After: 1.1e-15 and 6.7e-16 (density in cm^-2). When the
+  column norms of K differ by more than 2^10, the problem is solved for
+  density / t with t a power of two (exact rescaling) and scaled back.
+  Smaller ratios (all shipped sets, all README examples) run the
+  unchanged code. Test:
+  `test_bayesian_map_does_not_depend_on_the_density_unit`.
+- `MultiModeModel`, `ThreeCauseModel` and `bayesian_map_inversion`
+  refused a well-separating lever-arm matrix as "rank < 2" ("rank < 3")
+  when the density was in m^-2 (arms near 1e-17 cm^-1 per m^-2; also
+  for K / [1, 1e15]), and `compare_mode_sets` returned `[]` for it
+  instead of three subsets. The rank is now judged on K with unit-length
+  columns (`_has_full_column_rank`), as `calibrate_lever_arms` does
+  since 0.14.0. After: the results equal those in 1e13 cm^-2, rescaled
+  (measured relative differences below 1e-14); a rank-deficient matrix
+  is still refused in any unit. Test:
+  `test_rank_tests_do_not_depend_on_the_units`.
+- Documentation and tests: `fit_map` was documented (module docstring,
+  README) to give "bit for bit" the numbers of the per-pixel loop over
+  `fit_two_modes`, and nine tests demanded exact equality between the
+  stacked and the single-spectrum fits (and between `ThreeCauseModel`
+  runs on stacks of different length). That held on the machine of
+  0.14.0 but is not guaranteed on another CPU, because the stacked and
+  the single products are different NumPy/BLAS calls. Demonstration:
+  changing the counts of the test map by one unit in the last place
+  flips the mask reason code of 1 or 2 of its 18 peak-free pixels
+  between 3 and 4 (joint fits of pure noise run away to centers of
+  1e20 to 1e76 cm^-1 along a chaotic path). The docs now say "up to
+  rounding"; the tests compare shifts to 1e-4 of their error bar and
+  error bars to a relative 1e-5 (derived from the stopping rule: a stop
+  one step earlier or later moves a parameter by at most about
+  1e-6 sqrt(n - p) of its error bar), compare mask decisions exactly on
+  pixels with peaks (whose decisions are checked to be far from every
+  threshold), and no longer compare peak-free pixels. Measured on this
+  machine the outputs are still identical.
+
+### Changed
+
+- Results of existing calls are unchanged: a set of 21 calls covering
+  fitting (both baselines, joint, `min_snr`, `noise="varying"`, Voigt),
+  `fit_map`, the two-mode, multimode, three-cause and Bayesian
+  inversions, `compare_mode_sets`, calibration (with and without
+  offset), planning, both propagation tools, `region_mean`,
+  `region_contrast` and the thermometer gives identical output under
+  0.14.0 and 0.15.0, except the Bayesian posterior sigmas (new
+  computation, largest relative difference 9.1e-16). README examples 1
+  to 18 and the two earlier tutorials print the same output.
+- `region_mean` now calls two helpers (`_homogeneity`,
+  `_reference_cov`) that hold its former code unchanged, so that
+  `region_profile` runs the same checks.
+- The `max_dense` refusal of `bayesian_map_inversion(...,
+  posterior_sigma=True)` is kept, with a message that no longer speaks
+  of a dense inverse.
+- Packaging: a new `MANIFEST.in` puts `examples/` (the tutorials),
+  `CHANGELOG.md`, `CITATION.cff` and `CONTRIBUTING.md` into the source
+  distribution. Before, the tutorial tests skipped when run from it;
+  now all 148 tests pass from the unpacked sdist (installed in a fresh
+  environment), none skipped. The wheel is unchanged.
+- Type hints on the constructors of `MultiModeModel` and
+  `ThreeCauseModel` and on the new functions and methods.
+- Docstrings: `multimode` notes that the A-optimality ranking of
+  `compare_mode_sets` depends on the units (the D-optimality value does
+  not change the ranking).
+
+### Performance
+
+- `bayesian_map_inversion(..., posterior_sigma=True)` no longer takes
+  the dense inverse of the posterior precision. With one sigma per mode
+  and no missing value, the exact diagonal follows from the
+  eigen-decomposition of the lattice Laplacian (a Kronecker sum of two
+  path Laplacians): two small matrix products. Otherwise it comes from
+  one sparse LU factorization and solves against the unit vectors, in
+  blocks of 256. Equality with the 0.14.0 dense inverse (kept in the
+  tests as the reference, built independently) is checked to
+  100 eps cond(A) relative. Measured on a 45 x 45 map (4050 unknowns),
+  median of interleaved runs, same machine, `OMP_NUM_THREADS=1`: one
+  sigma per mode, 98 times faster (7.4 s to 0.076 s, 5 runs) and 166
+  times faster in a second, more loaded session (19.9 s to 0.12 s, 7
+  runs); per-pixel sigmas, 2.2 times (7.7 s to 3.5 s) and 3.4 times
+  (14.2 s to 4.1 s). The machine was shared with other jobs. The maps
+  themselves are unchanged (identical in both versions).
+
+### Tutorials
+
+- `examples/tutorial_edge_profile.py`: calibration, `fit_map` on a
+  12 x 24 ribbon map (20 nm pixels), the strain and density profile
+  versus the distance from the nearer edge (`region_profile`), the
+  correlation between bins, and the extra electrons per micrometer of
+  edge (`integrated_excess`), against the naive error bar that treats
+  the bins as independent (about 1 s). Its output is pasted at the top
+  of the script and in the README; the tutorial test runs it.
+
+### Tests
+
+- New `tests/test_v015.py` (11 tests); the tutorial test also runs
+  the new tutorial; nine tests with exact comparisons in
+  `test_mapfit.py`, `test_refusals_v0111.py`, `test_v012.py`,
+  `test_v013.py` and `test_v014.py` now use the derived tolerances
+  described above (`test_fit_map_is_bit_for_bit_the_per_pixel_loop` is
+  now `test_fit_map_agrees_with_the_per_pixel_loop`). Test count:
+  136 -> 148. The full suite also passes with the oldest allowed
+  dependencies (NumPy 1.22.0, SciPy 1.8.0) on Python 3.9.
+
 ## 0.14.0 (2026-10-17)
 
 Region means and contrasts with a full error budget, correlated shift
