@@ -83,10 +83,20 @@ def mos2_a1_2la() -> ModeCoefficients:
     2LA(M) overtone, couples only weakly.
 
     CAVEAT carried over from the source paper: no gated measurement of the
-    2LA(M) doping coefficient exists, so it is set to zero here rather than
-    known to be zero. The source paper bounds the consequence: letting the
-    overtone renormalize at up to half the frequency-scaled A'1 rate
-    changes a recovered edge charge by 16 percent.
+    2LA(M) doping coefficient of MoS2 exists, so it is set to zero here
+    rather than known to be zero. The source study bounds the consequence:
+    letting the overtone soften with electrons at up to half the
+    frequency-scaled A'1 rate raises the recovered edge charge by 16
+    percent (2.27e12 to 2.63e12 cm^-2 in its archived results), and the
+    sign of the edge result reverses only above 3.7 times that rate.
+
+    SECOND CAVEAT from the source paper: the computed strain arms are
+    likely too large. A direct biaxial-strain measurement on five
+    monolayer WSe2 devices (Michail et al., ACS Appl. Mater. Interfaces 16,
+    49602 (2024)) gives an overtone-to-A'1 ratio of 1.8 where the same
+    calculation gives 4.8. Where 2LA(M) does not shift, the recovered
+    strain is near zero for any non-zero overtone arm, so that result does
+    not depend on the computed value.
 
     Units: percent biaxial strain; electron density in 1e13 cm^-2.
     Applicability: 1H monolayer, 532 nm excitation, SiO2-supported, 300 K.
@@ -100,12 +110,12 @@ def mos2_a1_2la() -> ModeCoefficients:
         k2_density=0.0,
         reference=(
             "Strain lever arms (DFT, frozen phonon): T. M. Mahim and "
-            "M. M. Rahman, 'Two Raman phonons quantify the fixed edge "
-            "charge left by patterning monolayer transition metal "
-            "dichalcogenides' (under review); code and data: "
+            "M. M. Rahman, 'Two Raman peaks and transistor thresholds "
+            "quantify the fixed negative charge at etched edges of "
+            "monolayer MoS2' (under review); code and data: "
             "github.com/Tanvir-Mahmud-Mahim/Width-scaling-in-monolayer-"
             "semiconductor-nanoribbon-transistors, "
-            "doi:10.5281/zenodo.21778170. A'1 doping coefficient "
+            "doi:10.5281/zenodo.21670315. A'1 doping coefficient "
             "(measured): B. Chakraborty et al., Phys. Rev. B 85, "
             "161403(R) (2012). 2LA(M) doping coefficient set to zero "
             "(unmeasured; see docstring caveat)."
@@ -217,6 +227,6 @@ def mos2_eprime_a1() -> ModeCoefficients:
             "rates agree to the digits shown). Doping (measured): B. Chakraborty "
             "et al., Phys. Rev. B 85, 161403(R) (2012). Compiled as in "
             "T. M. Mahim and M. M. Rahman (under review), "
-            "doi:10.5281/zenodo.21778170."
+            "doi:10.5281/zenodo.21670315."
         ),
     )

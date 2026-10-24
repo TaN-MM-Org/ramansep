@@ -5,9 +5,9 @@ responses form a linear, invertible probe of the (strain, carrier density)
 state at each map pixel. This package implements that inversion with full
 uncertainty propagation and conditioning diagnostics.
 
-Methodological basis: T. M. Mahim and M. M. Rahman, "Two Raman phonons
-quantify the fixed edge charge left by patterning monolayer transition
-metal dichalcogenides" (under review). The solver is material-agnostic:
+Methodological basis: T. M. Mahim and M. M. Rahman, "Two Raman peaks and
+transistor thresholds quantify the fixed negative charge at etched edges
+of monolayer MoS2" (under review). The solver is material-agnostic:
 you supply the coefficient matrix for your material and mode pair.
 """
 from .core import SeparationModel, SeparationResult
@@ -31,7 +31,7 @@ from .thermal import (HC_OVER_KB_CM_K, ThreeCauseModel, ThreeCauseResult,
                       anti_stokes_ratio, calibrate_anti_stokes,
                       temperature_from_anti_stokes)
 
-__version__ = "0.15.0"
+__version__ = "0.15.1"
 __all__ = ["SeparationModel", "SeparationResult", "ModeCoefficients",
            "MultiModeModel", "MultiModeResult", "compare_mode_sets",
            "ThreeCauseModel", "ThreeCauseResult", "HC_OVER_KB_CM_K",
