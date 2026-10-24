@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.15.1 (2026-10-24)
+
+Documentation and metadata only. No code path changed, and every
+result is the same as in 0.15.0.
+
+### Changed
+
+- The source paper was revised and retitled. References in the
+  package docstring, in `mos2_a1_2la()`, in `mos2_eprime_a1()` and in
+  the README now give the new title, "Two Raman peaks and transistor
+  thresholds quantify the fixed negative charge at etched edges of
+  monolayer MoS2" (under review), and the paper's data concept DOI
+  10.5281/zenodo.21670315 (it resolves to the latest version) in place
+  of the version DOI 10.5281/zenodo.21778170.
+- `mos2_a1_2la()` docstring and README: the bound on the unmeasured
+  2LA(M) doping response now also says that only a response above 3.7
+  times the frequency-scaled A'1 rate reverses the sign of the edge
+  result, as the revised paper states. The 16% figure is unchanged
+  (2.27e12 to 2.63e12 cm^-2 in the source study's archived results).
+- `mos2_a1_2la()` docstring and README: a second caveat from the
+  revised paper. A direct strain measurement on five monolayer WSe2
+  devices (Michail et al., ACS Appl. Mater. Interfaces 16, 49602
+  (2024)) gives an overtone-to-A'1 ratio of 1.8 where the same
+  calculation gives 4.8, so the computed strain arms are likely too
+  large. The shipped values are unchanged.
+- README and `tests/test_mos2_sets.py`: the paper is under review, so
+  its separations are no longer called "published". The reference
+  test now checks for the concept DOI.
+
 ## 0.15.0 (2026-10-18)
 
 Profiles across an edge with the covariance between bins, the extra

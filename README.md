@@ -195,8 +195,8 @@ condition number of the matrix: 10.1
 
 The edge carries about 2.3e12 electrons per cm^2 and no strain; the
 interior spot is under 0.134 % tension, and its density is within one
-error bar of zero. These are the paper's published separations; the
-test suite checks them (see below). `res.correlation` gives the
+error bar of zero. These match the paper's separations; the test
+suite checks them (see below). `res.correlation` gives the
 per-pixel correlation of the two estimates.
 
 ### 2. Choosing a mode pair
@@ -1291,14 +1291,21 @@ before use.
 - `mos2_a1_2la()`: the A'1 + 2LA(M) pair for monolayer MoS2. Strain
   arms -5.1 and -20.9 cm^-1 per percent biaxial strain, computed by
   frozen-phonon DFT in the source paper (Mahim and Rahman, under
-  review; data doi:10.5281/zenodo.21778170). A'1 doping response
+  review; data doi:10.5281/zenodo.21670315). A'1 doping response
   -2.2 cm^-1 per 1e13 cm^-2 of electrons, measured with a gate by
   Chakraborty et al., Phys. Rev. B 85, 161403(R) (2012). The 2LA(M)
-  doping response has never been measured and is set to zero; the
-  source paper bounds the consequence at 16% of a recovered edge
-  charge. Stated conditions: 1H monolayer (the common semiconducting
+  doping response has never been measured for MoS2 and is set to
+  zero. In the source study, a response of up to half the
+  frequency-scaled A'1 rate raises a recovered edge charge by 16%, and
+  only a response above 3.7 times that rate reverses its sign. The
+  paper also notes that the computed strain arms are likely too large:
+  on five monolayer WSe2 devices, a direct strain measurement (Michail
+  et al., ACS Appl. Mater. Interfaces 16, 49602 (2024)) gives an
+  overtone-to-A'1 ratio of 1.8 where the calculation gives 4.8. Where
+  2LA(M) does not shift, the recovered strain is near zero whatever
+  this arm is. Stated conditions: 1H monolayer (the common semiconducting
   crystal form), 532 nm laser, on an SiO2 substrate, 300 K. The tests
-  reproduce the source paper's published separations from this set
+  reproduce the source paper's separations from this set
   (example 1).
 - `mos2_eprime_a1()`: the historically used all-optical E' + A'1 pair
   (Michail et al., Appl. Phys. Lett. 108, 173102 (2016)). Strain arms
@@ -1449,7 +1456,7 @@ parts, NumPy's own defaults apply, and these are listed too:
   inversions to within 2 %.
 - MoS2 A'1 + 2LA(M), paper edge spot: zero strain to 1e-12, density
   0.5/2.2 x 1e13 cm^-2 to a relative 1e-12, within 0.5e11 of the
-  published 2.3e12 cm^-2. Interior spot: strain 0.134 % within 0.0005,
+  paper's 2.3e12 cm^-2. Interior spot: strain 0.134 % within 0.0005,
   density below 7.6e11 cm^-2 in size.
 - The E' + A'1 strain arms equal -2 gamma omega / 100 from the cited
   Grueneisen parameters within 0.005; its strain error bar is more
@@ -1973,13 +1980,15 @@ The full history is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Where it comes from
 
-> T. M. Mahim and M. M. Rahman, "Two Raman phonons quantify the fixed
-> edge charge left by patterning monolayer transition metal
-> dichalcogenides" (under review). Code for the paper:
+> T. M. Mahim and M. M. Rahman, "Two Raman peaks and transistor
+> thresholds quantify the fixed negative charge at etched edges of
+> monolayer MoS2" (under review). Code for the paper:
 > https://github.com/Tanvir-Mahmud-Mahim/Width-scaling-in-monolayer-semiconductor-nanoribbon-transistors
+> Data: [10.5281/zenodo.21670315](https://doi.org/10.5281/zenodo.21670315)
+> (concept DOI, resolves to the latest version)
 
 This package is the general-purpose, material-agnostic tool; the
-paper repository reproduces the specific published study.
+paper repository reproduces that specific study.
 
 ## Citing, support and license
 
