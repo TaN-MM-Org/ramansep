@@ -82,13 +82,18 @@ def mos2_a1_2la() -> ModeCoefficients:
     mode to the K-valley density; the E'-symmetry channel, and with it the
     2LA(M) overtone, couples only weakly.
 
-    CAVEAT carried over from the source paper: no gated measurement of the
-    2LA(M) doping coefficient of MoS2 exists, so it is set to zero here
-    rather than known to be zero. The source study bounds the consequence:
-    letting the overtone soften with electrons at up to half the
-    frequency-scaled A'1 rate raises the recovered edge charge by 16
-    percent (2.27e12 to 2.63e12 cm^-2 in its archived results), and the
-    sign of the edge result reverses only above 3.7 times that rate.
+    CAVEAT carried over from the source paper: no measurement of the
+    2LA(M) doping coefficient of MoS2 is known, so it is set to zero here
+    rather than known to be zero. The source study bounds the consequence
+    with its computed parameters: letting the overtone soften with
+    electrons at up to half the frequency-scaled A'1 rate raises the
+    recovered edge charge by 16 percent (2.27e12 to 2.63e12 cm^-2 in its
+    archived results), and the sign of the edge result reverses only
+    above 3.7 times that rate. At the low end of the range it considers
+    for the overtone's strain response, that threshold falls to 0.53
+    times the rate. With all its stated input uncertainties, any response
+    up to half the rate still gives an electron excess in 98 percent of
+    its samples.
 
     SECOND CAVEAT from the source paper: the computed strain arms are
     likely too large. A direct biaxial-strain measurement on five
@@ -100,6 +105,9 @@ def mos2_a1_2la() -> ModeCoefficients:
 
     Units: percent biaxial strain; electron density in 1e13 cm^-2.
     Applicability: 1H monolayer, 532 nm excitation, SiO2-supported, 300 K.
+    The source paper itself applies this set outside these conditions, to
+    tip-enhanced Raman maps taken with 785 nm excitation on a gold
+    substrate (Krayev et al., Appl. Phys. Lett. 128, 203102 (2026)).
     """
     return ModeCoefficients(
         mode1_name="A'1",
