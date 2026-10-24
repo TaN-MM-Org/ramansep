@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.15.2 (2026-10-24)
+
+Documentation only. No code path changed, and every result is the same
+as in 0.15.0 and 0.15.1. An independent check of 0.15.1 against the
+revised source paper found three statements that said more than the
+paper does. They are corrected in the `mos2_a1_2la()` docstring and in
+the README.
+
+### Fixed
+
+- The 3.7 sign-reversal threshold and the 16% bound hold "with the
+  computed parameters", as the paper says. 0.15.1 left that out. The
+  text now adds that at the low end of the range the paper considers
+  for the overtone's strain response the threshold is 0.53 times the
+  rate, and that with all its stated input uncertainties any response
+  up to half the rate still gives an electron excess in 98% of its
+  samples.
+- "Never been measured" (README) and "no gated measurement ... exists"
+  (docstring) now read "no measurement ... is known", which is what
+  the paper states.
+- README: "whatever this arm is" now reads "for any non-zero overtone
+  arm", as in the docstring and the paper.
+
+### Changed
+
+- `mos2_a1_2la()` docstring and README: they now say that the source
+  paper itself applies the set outside its stated conditions, to
+  tip-enhanced maps taken with 785 nm excitation on a gold substrate
+  (Krayev et al., Appl. Phys. Lett. 128, 203102 (2026)).
+
 ## 0.15.1 (2026-10-24)
 
 Documentation and metadata only. No code path changed, and every

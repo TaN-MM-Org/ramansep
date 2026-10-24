@@ -1293,20 +1293,26 @@ before use.
   frozen-phonon DFT in the source paper (Mahim and Rahman, under
   review; data doi:10.5281/zenodo.21670315). A'1 doping response
   -2.2 cm^-1 per 1e13 cm^-2 of electrons, measured with a gate by
-  Chakraborty et al., Phys. Rev. B 85, 161403(R) (2012). The 2LA(M)
-  doping response has never been measured for MoS2 and is set to
-  zero. In the source study, a response of up to half the
-  frequency-scaled A'1 rate raises a recovered edge charge by 16%, and
-  only a response above 3.7 times that rate reverses its sign. The
-  paper also notes that the computed strain arms are likely too large:
-  on five monolayer WSe2 devices, a direct strain measurement (Michail
-  et al., ACS Appl. Mater. Interfaces 16, 49602 (2024)) gives an
-  overtone-to-A'1 ratio of 1.8 where the calculation gives 4.8. Where
-  2LA(M) does not shift, the recovered strain is near zero whatever
-  this arm is. Stated conditions: 1H monolayer (the common semiconducting
-  crystal form), 532 nm laser, on an SiO2 substrate, 300 K. The tests
-  reproduce the source paper's separations from this set
-  (example 1).
+  Chakraborty et al., Phys. Rev. B 85, 161403(R) (2012). No
+  measurement of the 2LA(M) doping response of MoS2 is known, so it is
+  set to zero. In the source study, with its computed parameters, a
+  response of up to half the frequency-scaled A'1 rate raises a
+  recovered edge charge by 16%, and only a response above 3.7 times
+  that rate reverses its sign. At the low end of the range the paper
+  considers for the overtone's strain response, that threshold is 0.53
+  times the rate; with all its stated input uncertainties, any response
+  up to half the rate still gives an electron excess in 98% of its
+  samples. The paper also notes that the computed strain arms are
+  likely too large: on five monolayer WSe2 devices, a direct strain
+  measurement (Michail et al., ACS Appl. Mater. Interfaces 16, 49602
+  (2024)) gives an overtone-to-A'1 ratio of 1.8 where the calculation
+  gives 4.8. Where 2LA(M) does not shift, the recovered strain is near
+  zero for any non-zero overtone arm. Stated conditions: 1H monolayer
+  (the common semiconducting crystal form), 532 nm laser, on an SiO2
+  substrate, 300 K. The source paper itself applies the set outside
+  these conditions, to tip-enhanced maps taken with 785 nm excitation
+  on gold (Krayev et al.). The tests reproduce the source paper's
+  separations from this set (example 1).
 - `mos2_eprime_a1()`: the historically used all-optical E' + A'1 pair
   (Michail et al., Appl. Phys. Lett. 108, 173102 (2016)). Strain arms
   -4.31 (E') and -2.50 (A'1) cm^-1 per percent, from the measured
