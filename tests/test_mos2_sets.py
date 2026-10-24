@@ -3,7 +3,7 @@
 The two headline tests reproduce, from the shipped coefficients and the
 peak shifts reported in the source paper (Mahim and Rahman, under review;
 tip-enhanced maps of Krayev et al., Appl. Phys. Lett. 128, 203102 (2026)),
-the paper's published separation results:
+the paper's separation results:
 
   * at the ribbon edge, A'1 redshifts by 0.5 cm^-1 while 2LA(M) does not
     move -> an electron excess of 2.3e12 cm^-2 with strain below 0.03%;
@@ -12,7 +12,7 @@ the paper's published separation results:
     (the paper's quoted uncertainty on the edge charge is 7.6e11 cm^-2).
 
 If a transcription error ever enters the coefficient tables, these tests
-fail against the published numbers.
+fail against the paper's numbers.
 """
 import numpy as np
 import pytest
@@ -28,7 +28,7 @@ def test_values_locked_a1_2la():
     assert c.k2_strain == -20.9     # cm^-1 per % biaxial (DFT, source paper)
     assert c.k2_density == 0.0      # unmeasured, set to zero (documented)
     assert "Chakraborty" in c.reference
-    assert "10.5281/zenodo.21778170" in c.reference
+    assert "10.5281/zenodo.21670315" in c.reference
 
 
 def test_values_locked_eprime_a1():
