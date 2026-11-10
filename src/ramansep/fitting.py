@@ -44,6 +44,7 @@ Since v0.14 `noise="varying"` replaces s^2 (J^T J)^-1 by the
 heteroskedasticity-consistent ("sandwich") covariance of H. White,
 Econometrica 48, 817 (1980), for spectra whose noise level changes
 along the axis, as shot noise does; the fitted values are unchanged.
+`fit_voigt` takes the same setting since v0.16.
 
 Since v0.12 `fit_two_modes(..., joint=True)` fits two overlapping
 peaks together (two Lorentzians on one shared baseline, same
@@ -870,7 +871,8 @@ def _voigt_model_and_jacobian(x, p):
     return y, J
 
 
-def fit_voigt(x, y, p0=None, max_iter=300, tol=1e-12) -> VoigtFit:
+def fit_voigt(x, y, p0=None, max_iter=300, tol=1e-12,
+              noise: str = "constant") -> VoigtFit:
     """Fit one Voigt peak by Levenberg-Marquardt with the analytic
     Faddeeva-function Jacobian (checked against finite differences in
     the tests, like the Lorentzian fitter's).
@@ -879,9 +881,16 @@ def fit_voigt(x, y, p0=None, max_iter=300, tol=1e-12) -> VoigtFit:
     seeded from the Lorentzian-style guess of the full width G0: a
     Gaussian part of FWHM G0 (sigma = G0 / (2 sqrt(2 ln 2))) and a
     Lorentzian part of FWHM G0 / 2 (gamma = G0 / 4).
+    noise : how the error bars are computed, as in `fit_lorentzian`
+    (new in v0.16; the fitted values do not depend on it). "constant"
+    (default, unchanged) assumes the same noise level at every point;
+    "varying" uses White's sandwich covariance, for shot-noise limited
+    spectra, whose "constant" error bars are too small (by a factor of
+    1.6 for the shot-noise Voigt peak of the tests).
     """
     x = np.asarray(x, dtype=float).ravel()
     y = np.asarray(y, dtype=float).ravel()
+    _check_noise(noise)
     if x.size != y.size:
         raise ValueError("x and y must have the same length")
     if x.size < 6:
@@ -939,7 +948,10 @@ def fit_voigt(x, y, p0=None, max_iter=300, tol=1e-12) -> VoigtFit:
     s2 = cost / dof
     JTJ = J.T @ J
     try:
-        cov = s2 * np.linalg.inv(JTJ)
+        if noise == "varying":                   # new in v0.16
+            cov = _sandwich(J, r, np.linalg.inv(JTJ))
+        else:
+            cov = s2 * np.linalg.inv(JTJ)
         sig = np.sqrt(np.maximum(np.diag(cov), 0.0))
     except np.linalg.LinAlgError:                # pragma: no cover
         sig = np.full(5, np.nan)

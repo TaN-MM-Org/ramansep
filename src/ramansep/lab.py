@@ -47,6 +47,14 @@ def _design_matrix(strain, density):
     return np.column_stack([eps, rho])
 
 
+def _is_whole(v) -> bool:
+    """True if v is a number with no fractional part."""
+    try:
+        return float(v).is_integer()
+    except (TypeError, ValueError):
+        return False
+
+
 def _weights(sigmas, n):
     sig = np.broadcast_to(np.asarray(sigmas, dtype=float), (n,)).copy()
     if np.any(sig <= 0.0) or not np.all(np.isfinite(sig)):
@@ -112,10 +120,18 @@ def design_references(strain_candidates, density_candidates, n_pick: int,
     Returns dict(indices, condition_number, cov, K_sigma) with the
     chosen candidate indices in pick order and the planned covariance
     of the chosen set. Refuses when even the full candidate list is
-    collinear, with the same explanation the calibration itself gives.
+    collinear, with the same explanation the calibration itself gives,
+    and an `n_pick` that is not a whole number from 2 to the number of
+    candidates (a fractional value is refused since v0.16; before, it
+    was rounded down).
     """
     X = _design_matrix(strain_candidates, density_candidates)
     n = X.shape[0]
+    # before v0.16 a fractional n_pick was cut down silently (2.7 picked
+    # 2 states)
+    if isinstance(n_pick, (bool, np.bool_)) or not _is_whole(n_pick):
+        raise ValueError(f"n_pick must be a whole number from 2 to {n}; "
+                         f"got {n_pick!r}")
     n_pick = int(n_pick)
     if not 2 <= n_pick <= n:
         raise ValueError(f"n_pick must be between 2 and {n}")

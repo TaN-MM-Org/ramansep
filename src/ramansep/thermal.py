@@ -15,7 +15,9 @@ ways.
    J. Phys. Chem. C 117, 9042 (2013); no number is shipped here).
    Requires at least three modes; the same chi-square, covariance and
    conditioning machinery as the two-cause solver, so an unidentifiable
-   mode set is refused rather than silently pseudo-inverted.
+   mode set is refused rather than silently pseudo-inverted. Since
+   v0.16 it also takes correlations between the shift errors of
+   different modes (`shift_correlation`, as in `MultiModeModel`).
 
 2. `temperature_from_anti_stokes`: the anti-Stokes/Stokes intensity
    ratio depends on temperature through the Bose-Einstein occupation,
@@ -44,7 +46,8 @@ import dataclasses
 import numpy as np
 from scipy.stats import chi2
 
-from .multimode import _has_full_column_rank, _stack_shifts, _stack_sigmas
+from .multimode import (_chi2_check, _correlation_stack, _gls_correlated,
+                        _has_full_column_rank, _stack_shifts, _stack_sigmas)
 
 __all__ = ["ThreeCauseModel", "ThreeCauseResult", "HC_OVER_KB_CM_K",
            "anti_stokes_ratio", "calibrate_anti_stokes",
@@ -120,7 +123,8 @@ class ThreeCauseModel:
             raise ValueError("one name per mode required")
         self.condition_number = float(np.linalg.cond(self.K))
 
-    def invert(self, shifts, sigmas=None) -> ThreeCauseResult:
+    def invert(self, shifts, sigmas=None,
+               shift_correlation=None) -> ThreeCauseResult:
         """Invert m shift maps into strain, density and temperature.
 
         shifts : sequence of m arrays (one per mode), all one shape.
@@ -128,15 +132,25 @@ class ThreeCauseModel:
         (scalars or arrays broadcastable to the map shape); omitted
         means unit weights, in which case chi2_map is calibrated only
         if the shift noise really is unit variance.
+        shift_correlation : optional correlations between the shift
+        errors of different modes (new in v0.16), in any form that
+        `MultiModeModel.invert` takes: an (m, m) matrix, one matrix per
+        pixel (map_shape + (m, m)), or a dict {(i, j): r}. Needs
+        sigmas. The estimate then uses the full shift covariance, as
+        described there. None (default) treats the errors as
+        independent, with the results of earlier versions unchanged.
 
         A pixel whose shift or sigma is not finite in any mode (a pixel
-        masked by `fit_map`) is returned as NaN in every output map and
-        does not affect the other pixels (since v0.12; before, a NaN
-        sigma made the whole call fail).
+        masked by `fit_map`), or whose correlation matrix holds a NaN,
+        is returned as NaN in every output map and does not affect the
+        other pixels (since v0.12; before, a NaN sigma made the whole
+        call fail).
         """
         S = _stack_shifts(shifts, self.m)
         map_shape = S.shape[1:]
         if sigmas is None:
+            if shift_correlation is not None:
+                raise ValueError("shift_correlation needs sigmas")
             sig = np.ones_like(S)
         else:
             sig = _stack_sigmas(sigmas, self.m, map_shape)
@@ -154,6 +168,16 @@ class ThreeCauseModel:
         x = np.full((P, 3), np.nan)
         cov = np.full((P, 3, 3), np.nan)
         resid2 = np.full(P, np.nan)
+        if shift_correlation is not None:           # new in v0.16
+            R, masked = _correlation_stack(shift_correlation, self.m,
+                                           map_shape)
+            x, cov, resid2, n_used, _ = _gls_correlated(
+                K, s_flat, sig_flat, R, masked, False)
+            chi2_map, p_value = _chi2_check(resid2, n_used, self.m, 3)
+            if chi2_map is not None:
+                chi2_map = chi2_map.reshape(map_shape)
+                p_value = p_value.reshape(map_shape)
+            return self._result(x, cov, chi2_map, p_value, map_shape)
         if np.any(good):
             sg = s_flat[:, good]
             wg = 1.0 / sig_flat[:, good] ** 2
@@ -177,6 +201,12 @@ class ThreeCauseModel:
         else:
             chi2_map = None
             p_value = None
+        return self._result(x, cov, chi2_map, p_value, map_shape)
+
+    def _result(self, x, cov, chi2_map, p_value, map_shape):
+        """Package the per-pixel estimates x (P, 3) and covariances
+        cov (P, 3, 3) as a `ThreeCauseResult`."""
+        dof = self.m - 3
         sd = np.sqrt(np.einsum("pii->pi", cov))
         return ThreeCauseResult(
             strain=x[:, 0].reshape(map_shape),

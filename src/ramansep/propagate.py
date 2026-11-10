@@ -27,7 +27,9 @@ Carlo over both noise sources confirms the combined error bars.
 Since v0.12, `multimode_with_calibration` does the same for m >= 2
 modes and the weighted least-squares estimate of `MultiModeModel`,
 using the exact derivative of that estimate (which, unlike the
-two-mode inverse, involves the residual; see its docstring).
+two-mode inverse, involves the residual; see its docstring). Since
+v0.16 it also takes correlated shift errors between modes
+(`shift_correlation`), with the derivative for a full weight matrix.
 
 A calibration fitted with `fit_offset=True` (since v0.13) works
 unchanged: its `cov` is the covariance of the lever arms with the
@@ -130,7 +132,8 @@ def separation_with_calibration(calibration, dw1, dw2, sigma1=None,
             "condition_number": base.condition_number}
 
 
-def multimode_with_calibration(calibration, shifts, sigmas=None):
+def multimode_with_calibration(calibration, shifts, sigmas=None,
+                               shift_correlation=None):
     """Weighted least-squares inversion of m >= 2 modes with the
     calibration's uncertainty included (new in v0.12).
 
@@ -144,6 +147,9 @@ def multimode_with_calibration(calibration, shifts, sigmas=None):
         maps). Without sigmas all modes get unit weight and the
         shift-noise part is not reported (None), as in
         `separation_with_calibration`.
+    shift_correlation : optional correlations between the shift errors
+        of different modes, exactly as `MultiModeModel.invert` takes
+        them (new in v0.16); needs sigmas.
 
     The estimate is the weighted least-squares solution
     x = A^-1 K^T W y with A = K^T W K. Its exact derivative with
@@ -152,7 +158,14 @@ def multimode_with_calibration(calibration, shifts, sigmas=None):
         dx/dK_mj = w_m A^-1 (e_j r_m - K_m^T x_j),
 
     where r = y - K x is the residual, w_m = 1/sigma_m^2, e_j the j-th
-    unit vector and K_m the m-th row of K. For two modes r = 0 and
+    unit vector and K_m the m-th row of K. With `shift_correlation`, W
+    is the inverse of the full shift covariance, and the same
+    differentiation gives
+
+        dx/dK_mj = A^-1 (e_j (W r)_m - (K^T W)_m x_j),
+
+    with (K^T W)_m column m of K^T W; for a diagonal W it is the
+    formula above. For two modes r = 0 and
     w_m A^-1 K_m^T is column m of K^-1, which is the identity used by
     `separation_with_calibration`; the tests assert that reduction and
     check the formula against finite differences of the re-solve. The
@@ -181,12 +194,17 @@ def multimode_with_calibration(calibration, shifts, sigmas=None):
     model = MultiModeModel(K, mode_names=list(
         getattr(calibration, "mode_names", None) or
         [f"mode{i + 1}" for i in range(m)]))
-    base = model.invert(shifts, sigmas=sigmas)
+    base = model.invert(shifts, sigmas=sigmas,
+                        shift_correlation=shift_correlation)
 
     S = np.stack([np.asarray(s, dtype=float) for s in shifts])
     map_shape = S.shape[1:]
     P = int(np.prod(map_shape)) if map_shape else 1
     y = S.reshape(m, P)
+    if shift_correlation is not None:                # new in v0.16
+        sig_cal = _calibration_sigma_correlated(
+            K, cov, y, sigmas, shift_correlation, map_shape)
+        return _with_calibration_part(base, sig_cal)
     if sigmas is None:
         w = np.ones((m, P))
     else:
@@ -229,6 +247,63 @@ def multimode_with_calibration(calibration, shifts, sigmas=None):
         s_tot, d_tot = sig_cal[0], sig_cal[1]
     return {"strain": base.strain, "density": base.density,
             "strain_sigma": s_tot, "density_sigma": d_tot,
+            "strain_sigma_shifts": s_shift,
+            "density_sigma_shifts": d_shift,
+            "strain_sigma_calibration": sig_cal[0],
+            "density_sigma_calibration": sig_cal[1],
+            "chi2_map": base.chi2_map, "p_value": base.p_value,
+            "dof": base.dof,
+            "condition_number": base.condition_number}
+
+
+def _calibration_sigma_correlated(K, cov, y, sigmas, shift_correlation,
+                                  map_shape):
+    """The calibration part of `multimode_with_calibration` with
+    correlated shift errors (new in v0.16): first order, from
+    dx/dK_mj = A^-1 (e_j (W r)_m - (K^T W)_m x_j) with W the inverse of
+    the full shift covariance at each pixel. Returns (2,) + map_shape."""
+    from .multimode import (_correlation_stack, _gls_correlated,
+                            _stack_sigmas)
+    m = K.shape[0]
+    P = y.shape[1]
+    sig = _stack_sigmas(sigmas, m, map_shape).reshape(m, P)
+    R, masked = _correlation_stack(shift_correlation, m, map_shape)
+    x, Ainv, _, _, W = _gls_correlated(K, y, sig, R, masked, True)
+    xt = x.T                                              # (2, P)
+    r = y - K @ xt                                        # (m, P)
+    good = np.all(np.isfinite(x), axis=1)
+    rz = np.where(good[None, :], r, 0.0)
+    Wz = np.where(good[:, None, None], W, 0.0)
+    Az = np.where(good[:, None, None], Ainv, 0.0)
+    xz = np.where(good[None, :], xt, 0.0)
+    Wr = np.einsum("pkl,lp->kp", Wz, rz)                  # (m, P)
+    KW = np.einsum("ki,pkl->pil", K, Wz)                  # (P, 2, m)
+    var_cal = np.zeros((2, P))
+    for mm in range(m):
+        g = []
+        for j in range(2):
+            v = -KW[:, :, mm].T * xz[j][None, :]          # (2, P)
+            v[j] += Wr[mm]
+            g.append(np.einsum("pik,kp->ip", Az, v))
+        for j in range(2):
+            for l in range(2):
+                c_jl = cov[mm, j, l]
+                if c_jl != 0.0:
+                    var_cal += g[j] * c_jl * g[l]
+    out = np.sqrt(np.maximum(var_cal, 0.0))
+    out[:, ~good] = np.nan
+    return out.reshape((2,) + map_shape)
+
+
+def _with_calibration_part(base, sig_cal):
+    """The result dict of `multimode_with_calibration` from the
+    `MultiModeModel` result `base` (computed with sigmas) and the
+    calibration part `sig_cal` (2, ...)."""
+    s_shift = np.asarray(base.strain_sigma)
+    d_shift = np.asarray(base.density_sigma)
+    return {"strain": base.strain, "density": base.density,
+            "strain_sigma": np.sqrt(s_shift ** 2 + sig_cal[0] ** 2),
+            "density_sigma": np.sqrt(d_shift ** 2 + sig_cal[1] ** 2),
             "strain_sigma_shifts": s_shift,
             "density_sigma_shifts": d_shift,
             "strain_sigma_calibration": sig_cal[0],
