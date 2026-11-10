@@ -92,7 +92,11 @@ def test_model_violation_is_flagged():
     outside = dirty.p_value[:10, :]
     assert np.median(inside) < 1e-6            # flagged
     assert np.median(outside) > 0.1            # unflagged
-    assert clean.p_value[10:15, :].min() > 1e-6 or True  # baseline sanity
+    # baseline: before the defect the same rows are not flagged (until
+    # v0.16 this line ended in "or True" and could not fail; the smallest
+    # of these 150 p-values is 0.014)
+    assert clean.p_value[10:15, :].min() > 1e-4
+    assert np.median(clean.p_value[10:15, :]) > 0.1
 
 
 def test_compare_mode_sets_ranks_by_delivered_variance():
