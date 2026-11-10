@@ -19,8 +19,8 @@ covers the steps around that:
   peak shifts out of the measured spectra? Which pixels failed or
   carry no peak at all?
 - What if two peaks overlap, so that their fitted positions are
-  correlated? Are my error bars right when the noise grows with the
-  counts (shot noise)?
+  correlated, with two peaks or more? Are my error bars right when the
+  noise grows with the counts (shot noise)?
 - Which pair of peaks separates the two causes best?
 - With three or more peaks, does "strain plus charge" actually explain
   what I measured, pixel by pixel?
@@ -155,7 +155,7 @@ Units and signs:
 ## Examples
 
 Each example below runs as written, and the output shown is what it
-printed with ramansep 0.15.0. Unless a value is said to come from a
+printed with ramansep 0.16.0. Unless a value is said to come from a
 cited source, it is an illustrative value chosen for the example. The
 repository also has a longer demo, `examples/synthetic_map.py`, that
 inverts a noisy synthetic 128 x 128 map and plots it with matplotlib,
@@ -1024,10 +1024,65 @@ here 0.024 cm^-1 against an actual scatter of 0.041 cm^-1.
 `noise="varying"` (new in 0.14.0) computes the error bars without that
 assumption, with the "sandwich" estimate of H. White, Econometrica 48,
 817 (1980), and matches the scatter. The fitted values are the same
-with either setting; only the error bars change. `fit_two_modes` and
-`fit_map` take `noise` too. On spectra whose noise is the same
-everywhere, the two settings agree on average (the tests check both
-cases).
+with either setting; only the error bars change. `fit_two_modes`,
+`fit_map` and (since 0.16.0) `fit_voigt` take `noise` too. For a Voigt
+peak with the same kind of shot noise, the default error bar of the
+center is too small by a factor of 1.6 in the tests. On spectra whose
+noise is the same everywhere, the two settings agree on average (the
+tests check both cases).
+
+### 19. Correlated errors with three or more peaks
+
+```python
+import numpy as np
+import ramansep as rs
+
+# The lever arms and shift errors of example 4 (rows A'1, 2LA(M) and the
+# invented mode X); the errors of A'1 and X are correlated (illustrative).
+K = np.array([[-5.1, -2.2],
+              [-20.9, 0.0],
+              [-8.0, -1.1]])
+sig = np.array([0.15, 0.10, 0.12])               # cm^-1
+R = np.array([[1.0, 0.0, 0.6],
+              [0.0, 1.0, 0.0],
+              [0.6, 0.0, 1.0]])                  # correlation matrix
+
+# A uniform 40 x 40 map (strain 0.1 %, density 0.3 x 1e13 cm^-2) measured
+# with noise of that correlation, drawn through a Cholesky factor.
+mm = rs.MultiModeModel(K, mode_names=["A'1", "2LA(M)", "X"])
+rng = np.random.default_rng(5)
+noise = np.linalg.cholesky(np.diag(sig) @ R @ np.diag(sig)) @ rng.standard_normal((3, 1600))
+clean = mm.forward(np.full((40, 40), 0.1), np.full((40, 40), 0.3))
+shifts = [s + e.reshape(40, 40) for s, e in zip(clean, noise)]
+
+for name, corr in (("independent", None), ("correlated ", {(0, 2): 0.6})):
+    res = mm.invert(shifts, sigmas=sig, shift_correlation=corr)
+    print(f"{name}: density error bar {res.density_sigma[0, 0]:.4f}, "
+          f"actual spread {res.density.std(ddof=1):.4f}, "
+          f"p < 0.05 at {(res.p_value < 0.05).mean():.1%} of the pixels")
+```
+
+```
+independent: density error bar 0.0604, actual spread 0.0717, p < 0.05 at 0.7% of the pixels
+correlated : density error bar 0.0691, actual spread 0.0677, p < 0.05 at 5.2% of the pixels
+```
+
+Two peaks fitted together share spectral points, so the errors of
+their shifts are correlated (example 13 and the second
+[tutorial](#tutorials)). With two peaks, `SeparationModel` takes that
+correlation; since 0.16.0 `MultiModeModel` takes it too, for any number
+of peaks. Treating correlated errors as independent does two things
+here. The density error bar comes out too small (0.060 against an
+actual spread of 0.072), and the model check loses its calibration:
+only 0.7 % of the pixels get p < 0.05, where 5 % should, so a real
+problem would be harder to see. With `shift_correlation` the estimate
+uses the full covariance of the shift errors (generalized least
+squares). Its error bar matches the spread, about 5 % of the p-values
+fall below 0.05, and the estimate itself scatters less (0.068 against
+0.072). The correlation can be one matrix for the map, one matrix per
+pixel, or a dict of mode pairs: after a joint fit of the first two
+peaks, `shift_correlation={(0, 1): fits.shift_correlation}`.
+`ThreeCauseModel` and `multimode_with_calibration` take it as well.
 
 ## Tutorials
 
@@ -1178,7 +1233,12 @@ and conventions.
 
 - `MultiModeModel(K, mode_names)`, `MultiModeResult` -- weighted
   least squares for any number (two or more) of modes, with `chi2_map`,
-  `p_value` and `dof`.
+  `p_value` and `dof`. `invert(shifts, sigmas, shift_correlation=None)`:
+  `shift_correlation` (new in 0.16.0) gives the correlations between
+  the shift errors of different modes, as an (m, m) matrix, one matrix
+  per pixel, or a dict `{(i, j): r}` of mode pairs (example 19). An
+  infinite sigma leaves that mode out at that pixel, and since 0.16.0
+  the model check there counts only the other modes.
 - `compare_mode_sets(K, sigmas, mode_names, subset_size=2)` -- ranks
   mode subsets by delivered variance (`subset_size` from 2 to the
   number of modes).
@@ -1202,7 +1262,8 @@ and conventions.
   "same size" part, for shot-noise limited spectra (example 18).
 - `voigt`, `fit_voigt`, `VoigtFit` -- the Voigt shape, computed
   exactly with the Faddeeva function (a standard special function,
-  `scipy.special.wofz`), normalised to peak height.
+  `scipy.special.wofz`), normalized to peak height. `fit_voigt` takes
+  `noise="varying"` since 0.16.0.
 - `fit_two_modes(x, y, window1, window2, ref1, ref2, baseline,
   joint=False, noise="constant")` -- fits both peaks, each in its own
   non-overlapping window, or with `joint=True` both together (example
@@ -1238,7 +1299,7 @@ and conventions.
 - `separation_with_calibration` -- example 8 (it takes
   `shift_correlation` too, since 0.14.0);
   `multimode_with_calibration` -- the same for three or more modes,
-  example 15.
+  example 15 (it takes `shift_correlation` too, since 0.16.0).
 
 **Regions of a map** (new in 0.14.0)
 
@@ -1276,7 +1337,9 @@ and conventions.
 
 **Temperature**
 
-- `ThreeCauseModel`, `ThreeCauseResult` -- example 10.
+- `ThreeCauseModel`, `ThreeCauseResult` -- example 10;
+  `invert(shifts, sigmas, shift_correlation=None)` takes the
+  correlations as `MultiModeModel` does (new in 0.16.0).
 - `anti_stokes_ratio`, `calibrate_anti_stokes`,
   `temperature_from_anti_stokes`, `HC_OVER_KB_CM_K` (hc/kB in cm K) --
   example 9.
@@ -1384,7 +1447,20 @@ docstring points to S. Sahoo et al., J. Phys. Chem. C 117, 9042
   0.13.0), or asks for exact error bars above `max_dense` unknowns;
 - `MultiModeModel` or `ThreeCauseModel` gets a number of error bars
   other than one per mode, or shift maps of different shapes (since
-  0.13.0 the message says which);
+  0.13.0 the message says which); `MultiModeModel` gets a pixel where
+  fewer than two modes have a finite sigma (since 0.16.0 always; before,
+  only when the rounding of the singular system happened to say so);
+- `shift_correlation` of `MultiModeModel`, `ThreeCauseModel` or
+  `multimode_with_calibration` is given without sigmas, is not
+  symmetric, has a diagonal other than 1 or an entry that is infinite
+  or outside [-1, 1], has the wrong shape, or is not positive definite
+  at a pixel (for example a correlation of exactly +1 or -1, which
+  `SeparationModel` accepts); or a dict key that is not a pair of two
+  different mode indices, or a pair given twice (all new in 0.16.0; NaN
+  marks a masked pixel);
+- `compare_mode_sets` gets a `mode_names` list whose length is not the
+  number of modes, and `design_references` an `n_pick` that is not a
+  whole number (both new in 0.16.0);
 - a peak fit gets too few points (5 for a Lorentzian with a constant
   baseline, 6 with a linear baseline or for a Voigt), non-finite data,
   an unknown `baseline` name, or a non-positive starting width;
@@ -1419,8 +1495,9 @@ docstring points to S. Sahoo et al., J. Phys. Chem. C 117, 9042
 - `compare_mode_sets` gets a `subset_size` that is not a whole number
   from 2 to the number of modes (before 0.14.0 it returned an empty
   list);
-- a peak fit gets a `noise` setting other than `"constant"` or
-  `"varying"`;
+- a peak fit (`fit_lorentzian`, `fit_two_modes`, `fit_map` and, since
+  0.16.0, `fit_voigt`) gets a `noise` setting other than `"constant"`
+  or `"varying"`;
 - `region_mean` or `region_contrast` gets a region that is not a
   boolean map of the map's shape, a region without a usable pixel, a
   shift error that is not positive in a pixel it uses, two regions that
@@ -1442,7 +1519,7 @@ docstring points to S. Sahoo et al., J. Phys. Chem. C 117, 9042
 
 ## How the results are checked
 
-148 automated tests run on every push and pull request, on Python 3.9,
+162 automated tests run on every push and pull request, on Python 3.9,
 3.10, 3.11, 3.12, 3.13 and 3.14, and once more on Python 3.9 with the
 oldest NumPy (1.22.0) and SciPy (1.8.0) the package allows. The
 numerical checks compare the package with an independent calculation,
@@ -1762,7 +1839,81 @@ parts, NumPy's own defaults apply, and these are listed too:
   such trials on that map (with `min_snr=2`) these pixels stayed
   masked every time; only the reason code changed.
 
+**New in 0.16.0** (`tests/test_v016.py`, 14 tests, and one changed test)
+
+- Each fix below has a test that fails on 0.15.2 and passes now. With
+  an infinite sigma on one of four modes, the chi-square and the
+  p-value equal those of the model without that mode (chi-square to a
+  relative 1e-12, p to 1e-10), and the other pixels of the map are
+  unchanged (relative 1e-12); with three modes and one infinite sigma,
+  the check is NaN. With one usable mode left, all of 2000 random
+  lever-arm matrices are refused. A `mode_names` list of the wrong
+  length and a fractional `n_pick` are refused.
+- Correlated shift errors: with two modes, `MultiModeModel` equals
+  `SeparationModel` with the same correlation (maps to a relative
+  1e-12 plus 1e-14, error bars and correlation to a relative 1e-10), and the covariance
+  equals K^-1 S K^-T computed in the test (relative 1e-10). With five
+  modes and a random correlation matrix and error bars per pixel, the
+  estimate, its error bars, the chi-square and the p-value of
+  `MultiModeModel` and `ThreeCauseModel` equal an independent solve,
+  whitened with a Cholesky factor of the covariance and done with
+  `numpy.linalg.lstsq` (relative 1e-9, plus 1e-12 for the estimates;
+  p to a relative 1e-8). Zero correlations give the independent-error
+  results (relative 1e-11 plus 1e-14 for `MultiModeModel` and
+  `multimode_with_calibration`, relative 1e-9 plus 1e-12 for the
+  three-cause model, whose systems have condition numbers of 3.5e5 to
+  1.2e7).
+  On 20000 seeded draws of correlated noise, the spread of strain and
+  density is within 3 % of the reported error bars (measured: within
+  1 %), the mean chi-square within 3 standard errors of 1, and the share
+  of p-values below 0.05 within 0.005 of 0.05 (measured: 0.04965). The
+  estimate that ignores the correlation has the larger variance
+  (Gauss-Markov theorem; checked as a positive semidefinite
+  difference), whose value from the sandwich formula matches its
+  spread within 3 %, and only 1.1 % of its p-values fall below 0.05.
+  A NaN in the correlation matrix or the sigmas of one pixel masks
+  only that pixel; an infinite sigma gives the result of the model
+  without that mode (relative 1e-10). The calibration part of
+  `multimode_with_calibration` with correlations equals the one from a
+  central finite-difference Jacobian of the re-solve (relative 1e-6),
+  and with two modes it equals `separation_with_calibration`
+  (relative 1e-10).
+- `fit_voigt(..., noise="varying")`: the error bars equal the sandwich
+  formula built from a central finite-difference Jacobian of `voigt`
+  (relative 1e-5), and the fitted values are those of the default. On
+  600 seeded shot-noise spectra of one Voigt peak, the spread of the
+  fitted center is 1.6 times the default error bar (asserted: 1.5 to
+  1.9) and within 2 % of the `"varying"` one (asserted: within 10 %).
+- Changed test: `test_model_violation_is_flagged` ended in
+  `assert ... or True`, which cannot fail. It now checks that the rows
+  that later get the hidden shift are not flagged before it (smallest
+  p-value above 1e-4, median above 0.1).
+
 ## Corrections in earlier versions
+
+**0.16.0 fixed one misleading check and two silent argument errors**
+(before and after values from running 0.15.2 and 0.16.0 on the same
+input).
+
+- `MultiModeModel.invert` with an infinite sigma (a mode that carries
+  no information at a pixel) gave that mode zero weight, as it should,
+  but still checked the pixel with m - 2 degrees of freedom. With four
+  modes and one infinite sigma, a pixel whose fourth shift is off by
+  0.5 cm^-1 got p = 1.26e-5 instead of 2.03e-6 (the p-value of the
+  three-mode model); with three modes and one infinite sigma, no check
+  is possible, but p was 1.0. The check now counts only the modes with
+  a finite sigma, and gives NaN where none is left. A pixel with a
+  single usable mode was refused only when the rounding of
+  a11 a22 - a12^2 came out zero or negative: 669 of 2000 random
+  lever-arm matrices gave finite values instead (for example strain
+  -0.125 +/- 1.0e6). It is now always refused. Calls with finite
+  sigmas give the same numbers as before, bit for bit.
+- `compare_mode_sets` accepted a `mode_names` list longer than the
+  number of modes and labelled the subsets with its first names, which
+  is wrong whenever the list does not match the rows of `K`; a shorter
+  list failed with an `IndexError`. Both are now refused.
+- `design_references` cut a fractional `n_pick` down without saying so
+  (2.7 picked 2 states). It is now refused.
 
 **0.15.0 fixed two unit dependences, and corrected one documented
 claim** (before and after values from running 0.14.0 and 0.15.0 on the
@@ -1931,18 +2082,24 @@ The full history is in [CHANGELOG.md](CHANGELOG.md).
   shot noise it gives error bars that are too small (example 18), and
   `noise="varying"` should be used. Neither setting covers noise that
   is correlated between neighboring points (for example after
-  smoothing or interpolation of the spectra). `fit_voigt` has the
-  default error bars only.
+  smoothing or interpolation of the spectra). Since 0.16.0 `fit_voigt`
+  takes `noise` as well.
 - By default `fit_two_modes` fits each peak in its own window, and the
   tail of the other peak can shift a fitted center (by 0.08 cm^-1 in
   example 13; the round-trip test allows 5e-3 cm^-1). `joint=True`
   removes this, provided no third peak lies anywhere from the lower
   edge of the first window to the upper edge of the second; it fits
   Lorentzians only (no joint Voigt fit). The two fitted centers are
-  then correlated; pass that correlation to the two-mode inversion with
-  `shift_correlation` (new in 0.14.0). `MultiModeModel`,
-  `ThreeCauseModel` and `bayesian_map_inversion` still treat the shift
-  errors of different modes as independent.
+  then correlated; pass that correlation to the inversion with
+  `shift_correlation` (two modes since 0.14.0; `MultiModeModel`,
+  `ThreeCauseModel` and `multimode_with_calibration` since 0.16.0). The
+  package computes such a correlation only for the two peaks of one
+  joint fit; for any other pair of modes you have to supply it.
+  `bayesian_map_inversion` still treats the shift errors of different
+  modes as independent.
+- An infinite sigma means "no information" in `MultiModeModel`, which
+  leaves that mode out at that pixel. `ThreeCauseModel` instead returns
+  NaN at a pixel with any non-finite sigma, as documented since 0.12.0.
 - `min_snr` and `fwhm_range` in `fit_map` are off by default and their
   values are your choice; the package does not decide what counts as
   "no peak" for your data.
@@ -1956,7 +2113,10 @@ The full history is in [CHANGELOG.md](CHANGELOG.md).
   first-order in the calibration errors. The calibration part is
   common to all pixels, so it does not average down over a map. The
   chi-square check of `multimode_with_calibration` ignores the
-  calibration uncertainty.
+  calibration uncertainty. `calibrate_lever_arms` fits each mode on its
+  own, so the lever arms of different modes are taken as uncorrelated;
+  `shift_correlation` covers correlated errors in the map, not in the
+  calibration measurements.
 - `region_mean` and `region_contrast` work with two modes. They treat
   the shift noise of different pixels as independent, which holds for
   separately measured spectra but not after spatial smoothing, and not

@@ -1,5 +1,103 @@
 # Changelog
 
+## 0.16.0 (2026-11-10)
+
+Correlated shift errors between any number of modes, shot-noise error
+bars for the Voigt fit, a model check that counts only the modes with
+information, two argument checks, and a CI fix.
+
+### Added
+
+- `MultiModeModel.invert(shifts, sigmas, shift_correlation=None)`,
+  `ThreeCauseModel.invert(..., shift_correlation=None)` and
+  `multimode_with_calibration(..., shift_correlation=None)`: the
+  correlations between the shift errors of different modes, for example
+  from a joint fit of two overlapping peaks. Given as an (m, m)
+  correlation matrix, one matrix per pixel (map shape + (m, m)), or a
+  dict `{(i, j): r}` of 0-based mode pairs with r a number or a map
+  (`{(0, 1): fits.shift_correlation}`). The estimate is then the
+  generalized least-squares solution with the full shift covariance
+  S = D R D: x = (K^T S^-1 K)^-1 K^T S^-1 s, covariance
+  (K^T S^-1 K)^-1, chi-square r^T S^-1 r with m - 2 (or m - 3) degrees
+  of freedom. The calibration part of `multimode_with_calibration` uses
+  the derivative dx/dK_mj = A^-1 (e_j (W r)_m - (K^T W)_m x_j) with
+  W = S^-1. Needs sigmas; a matrix that is not symmetric, has a
+  diagonal other than 1, an entry outside [-1, 1] or is not positive
+  definite is refused; NaN marks a masked pixel. None (default) runs
+  the unchanged code.
+- Validation: with two modes it equals `SeparationModel` with the same
+  correlation (relative 1e-12 for the maps, 1e-10 for the error bars)
+  and K^-1 S K^-T; with five modes and random per-pixel correlation
+  matrices it equals a whitened `numpy.linalg.lstsq` solve built in the
+  test (relative 1e-9), for two and three causes; zero correlations
+  give the independent-error results; the calibration part equals that
+  from a finite-difference Jacobian of the re-solve (relative 1e-6). On
+  20000 seeded draws of correlated noise the spread matches the error
+  bars (measured within 1 %) and 4.965 % of the p-values fall below
+  0.05; ignoring the correlation understates the density error bar
+  (0.0604 against a sandwich-formula value of 0.0708 and a spread of
+  0.0703) and leaves only 1.1 % of the p-values below 0.05.
+- `fit_voigt(..., noise="varying")`: White's sandwich error bars, as
+  `fit_lorentzian` has had since 0.14.0. On 600 seeded shot-noise
+  spectra of one Voigt peak (400 counts high on 30), the spread of the
+  fitted center is 1.62 times the default error bar and 1.02 times the
+  new one; the error bars equal the sandwich built from an independent
+  finite-difference Jacobian (relative 1e-5). The default is unchanged.
+- README example 19 (correlated errors with three peaks).
+
+### Fixed
+
+- `MultiModeModel.invert` with an infinite sigma (zero weight for that
+  mode at that pixel) checked the pixel with m - 2 degrees of freedom
+  although only the modes with a finite sigma carry information.
+  Before: with `K` of four modes, sigmas (0.1, 0.1, inf, 0.1) and the
+  fourth shift 0.5 cm^-1 off, p = 1.26e-5; with three modes and one
+  infinite sigma (no check possible), p = 1.0. After: p = 2.03e-6, the
+  p-value of the three-mode model without that mode (relative 1e-10),
+  and NaN for the three-mode case. The estimates do not change. A pixel
+  with a single finite sigma was refused only when the rounding of
+  a11 a22 - a12^2 came out zero or negative; before, 669 of 2000 random
+  lever-arm matrices returned finite values (for example strain
+  -0.125 +/- 1.0e6), after, all 2000 are refused. Tests:
+  `test_infinite_sigma_checks_only_the_remaining_modes`,
+  `test_a_single_usable_mode_is_always_refused`.
+- `compare_mode_sets` with a `mode_names` list longer than the number
+  of modes labelled the subsets with its first names (wrong whenever
+  the list does not match the rows of `K`); a shorter list raised
+  `IndexError`. Both now raise `ValueError`. Test:
+  `test_compare_mode_sets_refuses_names_of_another_length`.
+- `design_references` with a fractional `n_pick` (2.7) picked 2 states
+  without saying so; it now raises `ValueError`. Test:
+  `test_design_references_refuses_a_fractional_n_pick`.
+- Tests: `test_model_violation_is_flagged` ended in
+  `assert ... or True` and so could not fail. It now checks that the
+  rows that later get the hidden shift are not flagged before it
+  (smallest p-value 0.014, asserted above 1e-4).
+- CI: GitHub's `ubuntu-latest` runner is now Ubuntu 26.04, which has
+  no Python 3.9, so every run of the test workflow failed. Its two jobs now run
+  on `ubuntu-24.04`. The publish workflow is unchanged.
+
+### Changed
+
+- Results of existing calls are unchanged: a set of 15 calls covering
+  `MultiModeModel` (scalar and per-pixel sigmas, NaN, no sigmas, two to
+  four modes), `ThreeCauseModel`, `compare_mode_sets`,
+  `design_references`, `multimode_with_calibration` (with and without
+  sigmas), `fit_voigt` and `bayesian_map_inversion` gives bit-identical
+  output under 0.15.2 and 0.16.0, and README examples 1 to 18 and the
+  three tutorials print the same output.
+- `MultiModeModel.invert` docstring: without sigmas, the sigma maps (not
+  only `chi2_map`) assume unit shift errors.
+- README: the new options in the package list, example 18 mentions
+  `fit_voigt`, new refusals, test descriptions, corrections and limits.
+
+### Tests
+
+- New `tests/test_v016.py` (14 tests); one strengthened assertion in
+  `tests/test_multimode.py`. Test count: 148 -> 162. The full suite
+  also passes with the oldest allowed dependencies (NumPy 1.22.0, SciPy
+  1.8.0) on Python 3.9.
+
 ## 0.15.2 (2026-10-24)
 
 Documentation only. No code path changed, and every result is the same
