@@ -327,7 +327,7 @@ def test_offset_fit_agrees_with_lstsq_and_the_fwl_closed_form():
         beta, *_ = np.linalg.lstsq(A, y[:, k] / sig[:, k], rcond=None)
         assert np.allclose(cal.K[k], beta[:2], atol=1e-10, rtol=0)
         assert abs(cal.offset[k] - beta[2]) < 1e-10
-        # Frisch-Waugh-Lovell: arms from the weighted-centred design
+        # Frisch-Waugh-Lovell: arms from the weighted-centered design
         xbar = (w[:, None] * X).sum(axis=0) / w.sum()
         Xc = X - xbar
         cov_arms = np.linalg.inv(Xc.T @ (w[:, None] * Xc))

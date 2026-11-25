@@ -46,7 +46,7 @@ K_MOS2 = np.array(rs.mos2_a1_2la().matrix())
 
 
 def _laplacian(h, w):
-    """Graph Laplacian of the 4-neighbour h x w lattice, built here
+    """Graph Laplacian of the 4-neighbor h x w lattice, built here
     independently of the package (dense)."""
     n = h * w
     L = np.zeros((n, n))

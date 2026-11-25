@@ -187,6 +187,12 @@ def test_bayesian_refusals():
                                lam_strain=1.0)
     with pytest.raises(ValueError):
         bayesian_map_inversion(K, shifts[:, 0], SIG, lam_strain=1.0)
-    with pytest.raises(ValueError):   # dense posterior refused, not approximated
-        bayesian_map_inversion(K, np.zeros((3, 80, 80)), SIG, 1.0,
+    # one solve per unknown is refused above max_dense, not approximated.
+    # Since v0.17 this applies only where those solves are needed (here:
+    # per-pixel sigmas); with one sigma per mode the lattice formulas give
+    # the exact sigmas at any size (checked in tests/test_v017.py).
+    with pytest.raises(ValueError):
+        bayesian_map_inversion(K, np.zeros((3, 80, 80)),
+                               np.broadcast_to(SIG[:, None, None],
+                                               (3, 80, 80)), 1.0,
                                posterior_sigma=True)

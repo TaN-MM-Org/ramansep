@@ -3,8 +3,8 @@
 1. Joint two-peak fit: analytic Jacobian against finite differences;
    exact recovery of two overlapping noiseless Lorentzians (the
    separate-window fit is measurably biased on the same spectrum);
-   seeded Monte Carlo scatter and centre correlation against the
-   reported linearised values.
+   seeded Monte Carlo scatter and center correlation against the
+   reported linearized values.
 2. fit_map quality checks: a mixed cube of peak-free and genuine
    pixels (the truth is known by construction), reason codes, and
    unchanged results for good pixels.
@@ -58,7 +58,7 @@ def test_two_lorentzian_jacobian_matches_finite_differences(lin):
 
 def test_joint_fit_removes_the_tail_bias_exactly():
     """Noiseless overlapping pair: the separate-window fit is biased by
-    the neighbouring tail; the joint fit recovers both centres."""
+    the neighboring tail; the joint fit recovers both centers."""
     y = _pair()
     d1, d2, *_ = rs.fit_two_modes(X, y, W1, W2, 385.0, 404.0)
     assert abs(d1) > 0.05 and abs(d2) > 0.02          # the old bias
@@ -84,7 +84,7 @@ def test_joint_fit_removes_the_tail_bias_exactly():
 
 def test_joint_fit_errors_match_monte_carlo():
     """600 seeded noisy spectra of a strongly overlapping pair: the
-    centre scatter matches the reported sigma, the centre correlation
+    center scatter matches the reported sigma, the center correlation
     matches the reported one, and the mean error is compatible with
     zero."""
     x = X
@@ -282,15 +282,15 @@ def test_per_pixel_and_masked_agree_with_dense_least_squares():
 
 def test_filled_pixel_is_the_average_of_its_neighbours():
     shifts, sig = _maps()
-    shifts[:, 2, 3] = np.nan                  # interior pixel, 4 neighbours
-    shifts[:, 0, 5] = np.nan                  # corner pixel, 2 neighbours
+    shifts[:, 2, 3] = np.nan                  # interior pixel, 4 neighbors
+    shifts[:, 0, 5] = np.nan                  # corner pixel, 2 neighbors
     r = rs.bayesian_map_inversion(KB, shifts, sig, 4.0, 9.0,
                                   fill_masked=True, posterior_sigma=True)
     for f in (r.strain, r.density):
         nb = (f[1, 3] + f[3, 3] + f[2, 2] + f[2, 4]) / 4.0
         assert abs(f[2, 3] - nb) < 1e-12
         assert abs(f[0, 5] - (f[0, 4] + f[1, 5]) / 2.0) < 1e-12
-    # the interpolated pixel is less certain than its measured neighbours
+    # the interpolated pixel is less certain than its measured neighbors
     assert r.strain_sigma[2, 3] > max(r.strain_sigma[1, 3], r.strain_sigma[2, 2])
 
 
