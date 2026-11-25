@@ -19,7 +19,9 @@ each greedy pick is the candidate that most shrinks the joint
 lever-arm uncertainty. Collinear candidate sets -- for example a
 strain-only sweep -- are refused with the same exact rank argument
 `calibrate_lever_arms` uses, because no subset of a line can identify
-two lever arms.
+two lever arms. Since v0.17 the design tool also plans for the
+calibration with a fitted offset (`fit_offset=True`), with the offset
+treated as a nuisance parameter.
 
 Units are whatever you use everywhere else in the package (e.g.
 percent biaxial strain, density in 1e13 cm^-2, shifts and their
@@ -104,7 +106,7 @@ def plan_calibration(strain, density, sigmas=1.0, *,
 
 
 def design_references(strain_candidates, density_candidates, n_pick: int,
-                      sigmas=1.0) -> dict:
+                      sigmas=1.0, *, fit_offset: bool = False) -> dict:
     """Pick the most informative reference states to prepare.
 
     From the candidate (strain, density) points -- the states your
@@ -113,16 +115,32 @@ def design_references(strain_candidates, density_candidates, n_pick: int,
     information matrix (equivalently: shrinks the joint lever-arm
     uncertainty fastest). Transparent and monotone, but a
     good-practice heuristic, not a proof of the globally best subset.
-    It plans for the through-origin calibration (the default of
-    `calibrate_lever_arms`); for `fit_offset=True`, check a chosen set
-    with `plan_calibration(..., fit_offset=True)`.
+
+    fit_offset : False (default) plans for the through-origin
+        calibration, the default of `calibrate_lever_arms`. True (new in
+        v0.17) plans for `calibrate_lever_arms(..., fit_offset=True)`:
+        each pick then maximizes the determinant of the information
+        about the two lever arms alone, with the offset as a nuisance
+        parameter: the Schur complement det(F) / F_cc of the 3 x 3
+        information F of (strain arm, density arm, offset), F_cc its
+        offset entry. That is the
+        inverse determinant of the lever-arm covariance that
+        `plan_calibration(..., fit_offset=True)` reports. Before v0.17
+        a set chosen for the through-origin fit had to be checked with
+        `plan_calibration(..., fit_offset=True)` by hand; such a set can
+        be poor for the offset fit, because states on a line that does
+        not pass through the origin identify both arms through the
+        origin but not with a fitted offset.
 
     Returns dict(indices, condition_number, cov, K_sigma) with the
     chosen candidate indices in pick order and the planned covariance
-    of the chosen set. Refuses when even the full candidate list is
-    collinear, with the same explanation the calibration itself gives,
-    and an `n_pick` that is not a whole number from 2 to the number of
-    candidates (a fractional value is refused since v0.16; before, it
+    of the chosen set (for `fit_offset=True`, as
+    `plan_calibration(..., fit_offset=True)` gives it). Refuses when
+    even the full candidate list is collinear (on a line through the
+    origin; on any line with `fit_offset=True`), with the same
+    explanation the calibration itself gives, and an `n_pick` that is
+    not a whole number from 2 (3 with `fit_offset=True`) to the number
+    of candidates (a fractional value is refused since v0.16; before, it
     was rounded down).
     """
     X = _design_matrix(strain_candidates, density_candidates)
@@ -133,17 +151,26 @@ def design_references(strain_candidates, density_candidates, n_pick: int,
         raise ValueError(f"n_pick must be a whole number from 2 to {n}; "
                          f"got {n_pick!r}")
     n_pick = int(n_pick)
-    if not 2 <= n_pick <= n:
-        raise ValueError(f"n_pick must be between 2 and {n}")
+    low = 3 if fit_offset else 2
+    if not low <= n_pick <= n:
+        raise ValueError(f"n_pick must be between {low} and {n}")
     w = _weights(sigmas, n)
     full = plan_calibration(strain_candidates, density_candidates,
-                            1.0 / w)
+                            1.0 / w, fit_offset=fit_offset)
     if not full["identifiable"]:
+        if fit_offset:
+            raise ValueError(
+                "all candidate states lie on one straight line in the "
+                "(strain, density) plane, so with fit_offset=True the "
+                "lever arms are not identifiable; add a candidate off "
+                "that line")
         raise ValueError(
             "all candidate states are collinear in the (strain, "
             "density) plane, so the strain and density lever arms are "
             "not separately identifiable; add a candidate off that "
             "line (e.g. a gated point to a strain-only sweep)")
+    if fit_offset:
+        return _design_with_offset(X, w, n_pick)
     rows = X * w[:, None]
     # column-scaled (unit-free) greedy: identical column scaling
     # multiplies every candidate determinant by the same constant, so
@@ -172,6 +199,41 @@ def design_references(strain_candidates, density_candidates, n_pick: int,
         np.asarray(density_candidates, dtype=float).ravel()[idx],
         (1.0 / w)[idx])
     return {"indices": idx, "condition_number":
+            sub["condition_number"], "cov": sub["cov"],
+            "K_sigma": sub["K_sigma"]}
+
+
+def _design_with_offset(X, w, n_pick):
+    """`design_references(..., fit_offset=True)`: greedy determinant
+    picks for the lever arms with the offset as a nuisance parameter
+    (new in v0.17). Each candidate row is w (strain, density, 1); the
+    criterion of a set is log det(F) - log F_cc with F the 3 x 3
+    information of the rows picked so far plus a tiny start-up
+    regularizer, as in the through-origin greedy, after scaling every
+    column to unit root-mean-square size (a common column scaling
+    multiplies every criterion by the same constant, so the choices do
+    not depend on the units)."""
+    n = X.shape[0]
+    rows = np.column_stack([X, np.ones(n)]) * w[:, None]
+    scale = np.sqrt(np.mean(rows * rows, axis=0))
+    scale[scale == 0.0] = 1.0
+    rs = rows / scale
+    eps = 1e-12 * float(np.max(np.sum(rs * rs, axis=1)))
+    fs = eps * np.eye(3)
+    chosen = []
+    for _ in range(n_pick):
+        best_j, best_val = -1, -np.inf
+        for j in range(n):
+            if j in chosen:
+                continue
+            F = fs + np.outer(rs[j], rs[j])
+            val = float(np.linalg.slogdet(F)[1]) - float(np.log(F[2, 2]))
+            if val > best_val:
+                best_j, best_val = j, val
+        fs = fs + np.outer(rs[best_j], rs[best_j])
+        chosen.append(best_j)
+    sub = _plan_with_offset(X[chosen], w[chosen])
+    return {"indices": list(chosen), "condition_number":
             sub["condition_number"], "cov": sub["cov"],
             "K_sigma": sub["K_sigma"]}
 

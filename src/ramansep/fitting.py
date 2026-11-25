@@ -50,9 +50,9 @@ Since v0.12 `fit_two_modes(..., joint=True)` fits two overlapping
 peaks together (two Lorentzians on one shared baseline, same
 Levenberg-Marquardt loop, analytic Jacobian checked against finite
 differences), which removes the pull of one peak's tail on the other
-peak's fitted centre; on noiseless overlapping pairs it recovers both
-centres to 1e-8, and on seeded noisy spectra its reported centre errors
-and centre correlation match the Monte Carlo scatter.
+peak's fitted center; on noiseless overlapping pairs it recovers both
+centers to 1e-8, and on seeded noisy spectra its reported center errors
+and center correlation match the Monte Carlo scatter.
 """
 from __future__ import annotations
 
@@ -76,7 +76,7 @@ class PeakFit:
         x unit, about the window center) and its uncertainty, when
         `baseline="linear"` was requested; 0 and NaN for the constant
         baseline (new in v0.8).
-    center_correlation : correlation between the two fitted centres
+    center_correlation : correlation between the two fitted centers
         when this fit came from `fit_two_modes(..., joint=True)`; NaN
         for a single-peak fit (new in v0.12).
     """
@@ -355,15 +355,15 @@ def fit_two_modes(x, y, window1, window2, ref1: float, ref2: float,
     baseline : "constant" or "linear", passed to `fit_lorentzian`
         (new in v0.8; use "linear" for a sloped fluorescence
         background).
-    joint : False (default, unchanged behaviour) fits each peak alone
+    joint : False (default, unchanged behavior) fits each peak alone
         in its own window, so the tail of the other peak that reaches
-        into a window pulls that fitted centre slightly. True (new in
+        into a window pulls that fitted center slightly. True (new in
         v0.12) fits ONE model -- two Lorentzians on a shared baseline --
         to every point between the lower edge of the lower window and
         the upper edge of the higher one, starting from the separate
         window fits. Both tails are then part of the model, so this bias
         is gone. That span must contain no third peak. The two fitted
-        centres are then slightly correlated; the correlation is
+        centers are then slightly correlated; the correlation is
         reported in `fit1.center_correlation` (the inversion itself
         treats dw1 and dw2 as independent unless it is given that
         correlation: `SeparationModel.invert(..., shift_correlation=)`,
@@ -429,7 +429,7 @@ def _fit_two_lorentzians_joint(x, y, w1, w2, baseline, start1, start2,
                                max_iter=300, tol=1e-12, noise="constant"):
     """Levenberg-Marquardt fit of two Lorentzians plus a shared
     baseline on the span covering both windows; the same damping rule
-    and linearised covariance as `fit_lorentzian`. Returns two
+    and linearized covariance as `fit_lorentzian`. Returns two
     `PeakFit`s (mode 1, mode 2)."""
     lin = baseline == "linear"
     npar = 8 if lin else 7

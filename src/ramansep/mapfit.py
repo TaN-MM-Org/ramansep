@@ -20,7 +20,7 @@ The per-pixel inversion propagates NaN pixels through untouched
 density maps and never contaminate neighbors. The map-level Bayesian
 inversion (`bayesian_map_inversion`) couples pixels through its
 smoothness prior; it refuses NaNs unless asked to fill them from the
-neighbours (`fill_masked=True`, since v0.12).
+neighbors (`fill_masked=True`, since v0.12).
 
 Since v0.14 the pixels are fitted together, in blocks, by a stacked
 version of the same Levenberg-Marquardt loop (5 to 7 times faster on
@@ -64,7 +64,7 @@ MASK_REASONS = {
     1: "counts not finite",
     2: "fit raised an error",
     3: "fit did not converge",
-    4: "fitted centre outside its window",
+    4: "fitted center outside its window",
     5: "fitted peak height not positive (a dip or no peak)",
     6: "peak height below min_snr times its error bar",
     7: "fitted width outside fwhm_range",
@@ -128,7 +128,7 @@ def fit_map(wavenumber, cube, window1, window2, ref1: float, ref2: float,
 
     A pixel is masked (NaN in all four maps, False in `ok`, a non-zero
     code in `reason`) when its counts are not finite, a fit raises an
-    error or does not converge, a fitted centre lies outside its
+    error or does not converge, a fitted center lies outside its
     window, a fitted peak height is zero or negative (new in v0.12:
     such a "peak" is a dip, not a Raman line), or it fails the optional
     `min_snr` / `fwhm_range` checks.

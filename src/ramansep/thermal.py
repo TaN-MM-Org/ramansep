@@ -44,7 +44,6 @@ from __future__ import annotations
 import dataclasses
 
 import numpy as np
-from scipy.stats import chi2
 
 from .multimode import (_chi2_check, _correlation_stack, _gls_correlated,
                         _has_full_column_rank, _stack_shifts, _stack_sigmas)
@@ -140,11 +139,15 @@ class ThreeCauseModel:
         described there. None (default) treats the errors as
         independent, with the results of earlier versions unchanged.
 
-        A pixel whose shift or sigma is not finite in any mode (a pixel
-        masked by `fit_map`), or whose correlation matrix holds a NaN,
-        is returned as NaN in every output map and does not affect the
-        other pixels (since v0.12; before, a NaN sigma made the whole
-        call fail).
+        A pixel whose shift is not finite or whose sigma is NaN in any
+        mode (a pixel masked by `fit_map`), or whose correlation matrix
+        holds a NaN, is returned as NaN in every output map and does not
+        affect the other pixels (since v0.12; before, a NaN sigma made
+        the whole call fail). An infinite sigma means that mode carries
+        no information at that pixel, as in `MultiModeModel`: it gets
+        zero weight, and the model check there counts only the other
+        modes (since v0.17; before, such a pixel came out NaN). A pixel
+        left with fewer than three usable modes is refused.
         """
         S = _stack_shifts(shifts, self.m)
         map_shape = S.shape[1:]
@@ -161,9 +164,12 @@ class ThreeCauseModel:
         sig_flat = sig.reshape(self.m, P)
         # masked pixels (NaN shift or NaN sigma, as fit_map produces)
         # come out NaN, as in MultiModeModel; before v0.12 a NaN sigma
-        # made the whole map fail with a misleading "singular" error
+        # made the whole map fail with a misleading "singular" error.
+        # Since v0.17 an infinite sigma is a zero weight, as in
+        # MultiModeModel (before, the pixel came out NaN).
         good = (np.all(np.isfinite(s_flat), axis=0)
-                & np.all(np.isfinite(sig_flat), axis=0))
+                & np.all(~np.isnan(sig_flat), axis=0))
+        n_used = np.sum(np.isfinite(sig_flat), axis=0)
         K = self.K
         x = np.full((P, 3), np.nan)
         cov = np.full((P, 3, 3), np.nan)
@@ -172,7 +178,7 @@ class ThreeCauseModel:
             R, masked = _correlation_stack(shift_correlation, self.m,
                                            map_shape)
             x, cov, resid2, n_used, _ = _gls_correlated(
-                K, s_flat, sig_flat, R, masked, False)
+                K, s_flat, sig_flat, R, masked, True)
             chi2_map, p_value = _chi2_check(resid2, n_used, self.m, 3)
             if chi2_map is not None:
                 chi2_map = chi2_map.reshape(map_shape)
@@ -185,7 +191,8 @@ class ThreeCauseModel:
             A = np.einsum("ki,kp,kj->pij", K, wg, K)
             b = np.einsum("ki,kp->pi", K, wg * sg)
             det = np.linalg.det(A)
-            if np.any(det <= 0) or not np.all(np.isfinite(det)):
+            if (np.any(det <= 0) or not np.all(np.isfinite(det))
+                    or np.any(n_used[good] < 3)):
                 raise ValueError("weighted design matrix is singular at "
                                  "some pixels; check the coefficients "
                                  "and sigmas")
@@ -194,13 +201,10 @@ class ThreeCauseModel:
             cov[good] = np.linalg.inv(A)                   # (Pg, 3, 3)
             pred = np.einsum("ki,pi->kp", K, xg)
             resid2[good] = np.einsum("kp,kp->p", wg, (sg - pred) ** 2)
-        dof = self.m - 3
-        if dof > 0:
-            chi2_map = resid2.reshape(map_shape)
-            p_value = chi2.sf(resid2, dof).reshape(map_shape)
-        else:
-            chi2_map = None
-            p_value = None
+        chi2_map, p_value = _chi2_check(resid2, n_used, self.m, 3)
+        if chi2_map is not None:
+            chi2_map = chi2_map.reshape(map_shape)
+            p_value = p_value.reshape(map_shape)
         return self._result(x, cov, chi2_map, p_value, map_shape)
 
     def _result(self, x, cov, chi2_map, p_value, map_shape):

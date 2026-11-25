@@ -32,7 +32,8 @@ commonly exports, without a fixed header. A spectrum is two columns
 with x and y the stage positions (for example in micrometers), one line
 per pixel and spectral point, in any order. Columns may be separated by
 tabs, spaces or commas; lines starting with '#' and one leading text
-header line are skipped. The wavenumber axis may run in either
+header line are skipped. Numbers written with a decimal comma are read
+with `decimal=","` (new in v0.17). The wavenumber axis may run in either
 direction (it is returned increasing), and the map loader rebuilds the
 pixel grid from the stage positions. The same refusals apply as for
 the CSV contract: a map that is not a complete rectangular raster, a
@@ -202,25 +203,37 @@ def load_map_csv(path) -> tuple[np.ndarray, np.ndarray]:
 # ----------------------------------------------------------------------
 # Plain numeric tables as instruments export them (new in v0.13).
 
-def _read_numeric_table(path, ncols, usecols, delimiter):
+def _read_numeric_table(path, ncols, usecols, delimiter, decimal="."):
     """Parse a numeric text table into an (N, ncols) float array.
 
     Blank lines and lines starting with '#' are skipped; so is the
     first remaining line if it is not numeric (a column header). With
     `delimiter=None` the columns are split on commas if the last line
-    contains one, else on any whitespace (tabs or spaces).
+    contains one, else on any whitespace (tabs or spaces). With
+    `decimal=","` (new in v0.17) every comma is read as a decimal point,
+    and `delimiter=None` splits on semicolons if the last line contains
+    one, else on any whitespace; a comma delimiter is then refused.
     """
     usecols = tuple(int(c) for c in usecols)
     if len(usecols) != ncols or len(set(usecols)) != ncols \
             or min(usecols) < 0:
         raise ValueError(f"usecols must name {ncols} distinct, "
                          "non-negative column indices")
+    if decimal not in (".", ","):
+        raise ValueError('decimal must be "." or ","')
+    if decimal == "," and delimiter == ",":
+        raise ValueError('decimal="," needs a delimiter other than a '
+                         "comma (for example ';' or a tab)")
     with open(path) as fh:
         lines = [ln.strip() for ln in fh]
     lines = [ln for ln in lines if ln and not ln.startswith("#")]
     if not lines:
         raise ValueError("the file contains no data lines")
-    if delimiter is None:                         # judged on a data line
+    if decimal == ",":
+        if delimiter is None:                     # judged on a data line
+            delimiter = ";" if ";" in lines[-1] else None
+        lines = [ln.replace(",", ".") for ln in lines]
+    elif delimiter is None:                       # judged on a data line
         delimiter = "," if "," in lines[-1] else None
     first = lines[0].split(delimiter)
     try:
@@ -242,8 +255,8 @@ def _read_numeric_table(path, ncols, usecols, delimiter):
     return data
 
 
-def load_spectrum_table(path, *, usecols=(0, 1),
-                        delimiter=None) -> tuple[np.ndarray, np.ndarray]:
+def load_spectrum_table(path, *, usecols=(0, 1), delimiter=None,
+                        decimal=".") -> tuple[np.ndarray, np.ndarray]:
     """Read one spectrum from a plain two-column text table.
 
     path : a text file with one line per spectral point, holding the
@@ -253,7 +266,11 @@ def load_spectrum_table(path, *, usecols=(0, 1),
     usecols : which columns hold (wavenumber, counts); default (0, 1).
     delimiter : None (default) splits on commas if the last line of the
         file has one and on any whitespace otherwise; or give it
-        explicitly. A decimal comma (as in "404,7") is not supported.
+        explicitly.
+    decimal : "." (default) or "," (new in v0.17) for exports that write
+        numbers with a decimal comma, as in "404,7". With ",", the
+        default delimiter is a semicolon if the last line has one, and
+        any whitespace otherwise; a comma delimiter is refused.
 
     Returns (wavenumber, counts) with the wavenumber axis increasing:
     a file written from high to low wavenumber, as many instruments
@@ -263,7 +280,7 @@ def load_spectrum_table(path, *, usecols=(0, 1),
     numeric columns. Non-finite counts are returned as they are
     (`fit_map` masks such pixels).
     """
-    data = _read_numeric_table(path, 2, usecols, delimiter)
+    data = _read_numeric_table(path, 2, usecols, delimiter, decimal)
     x, y = data[:, 0].copy(), data[:, 1].copy()
     if x.size >= 2 and np.all(np.diff(x) < 0.0):
         x, y = x[::-1].copy(), y[::-1].copy()
@@ -277,8 +294,10 @@ def load_spectrum_table(path, *, usecols=(0, 1),
 
 
 def load_map_table(path, *, usecols=(0, 1, 2, 3), delimiter=None,
-                   decimals=None) -> tuple[np.ndarray, np.ndarray,
-                                           np.ndarray, np.ndarray]:
+                   decimals=None, decimal=".") -> tuple[np.ndarray,
+                                                        np.ndarray,
+                                                        np.ndarray,
+                                                        np.ndarray]:
     """Read a hyperspectral map from a four-column text table.
 
     path : a text file with one line per pixel and spectral point,
@@ -289,7 +308,8 @@ def load_map_table(path, *, usecols=(0, 1, 2, 3), delimiter=None,
         `load_spectrum_table`.
     usecols : which columns hold (x, y, wavenumber, counts); default
         (0, 1, 2, 3). Check the column order of your export.
-    delimiter : as in `load_spectrum_table`.
+    delimiter, decimal : as in `load_spectrum_table` (`decimal` is new
+        in v0.17).
     decimals : optional; round the stage positions to this many
         decimals before grouping them into the pixel grid, for exports
         whose positions jitter in the last digits. None (default)
@@ -309,7 +329,7 @@ def load_map_table(path, *, usecols=(0, 1, 2, 3), delimiter=None,
     and lines without the requested numeric columns. Non-finite counts
     are kept (`fit_map` masks those pixels, reason code 1).
     """
-    data = _read_numeric_table(path, 4, usecols, delimiter)
+    data = _read_numeric_table(path, 4, usecols, delimiter, decimal)
     px, py, wn, counts = (data[:, k] for k in range(4))
     for name, a in (("stage x position", px), ("stage y position", py),
                     ("wavenumber", wn)):

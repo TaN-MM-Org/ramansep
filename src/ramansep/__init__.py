@@ -14,7 +14,9 @@ from .core import SeparationModel, SeparationResult
 from .fitting import (PeakFit, VoigtFit, fit_lorentzian, fit_two_modes,
                       fit_voigt, lorentzian, voigt)
 from .multimode import MultiModeModel, MultiModeResult, compare_mode_sets
-from .bayesian import BayesianMapResult, bayesian_map_inversion
+from .bayesian import (BayesianMapResult, SmoothingChoice,
+                       bayesian_log_evidence, bayesian_map_inversion,
+                       choose_smoothing)
 from .calibration import CalibrationResult, calibrate_lever_arms
 from .mapfit import MASK_REASONS, MapFitResult, fit_map
 from .lab import (design_references, plan_calibration,
@@ -31,13 +33,14 @@ from .thermal import (HC_OVER_KB_CM_K, ThreeCauseModel, ThreeCauseResult,
                       anti_stokes_ratio, calibrate_anti_stokes,
                       temperature_from_anti_stokes)
 
-__version__ = "0.16.0"
+__version__ = "0.17.0"
 __all__ = ["SeparationModel", "SeparationResult", "ModeCoefficients",
            "MultiModeModel", "MultiModeResult", "compare_mode_sets",
            "ThreeCauseModel", "ThreeCauseResult", "HC_OVER_KB_CM_K",
            "anti_stokes_ratio", "calibrate_anti_stokes",
            "temperature_from_anti_stokes",
            "BayesianMapResult", "bayesian_map_inversion",
+           "bayesian_log_evidence", "choose_smoothing", "SmoothingChoice",
            "CalibrationResult", "calibrate_lever_arms",
            "MapFitResult", "fit_map", "MASK_REASONS",
            "load_spectrum_csv", "save_spectrum_csv",

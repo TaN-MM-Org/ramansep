@@ -7,6 +7,7 @@ import warnings
 import numpy as np
 
 from .materials import ModeCoefficients
+from .multimode import _has_full_column_rank
 
 
 @dataclasses.dataclass
@@ -84,8 +85,13 @@ class SeparationModel:
             raise ValueError("coefficient matrix must be 2x2")
         if not np.all(np.isfinite(self.K)):
             raise ValueError("coefficients must be finite numbers")
-        det = np.linalg.det(self.K)
-        if det == 0.0:
+        # Since v0.17 the matrix is judged with the rank test of
+        # `MultiModeModel` (made on K with unit-length columns, so the
+        # units do not matter). Before, only an exactly zero determinant
+        # was refused: K = [[0.1, 0.3], [0.7, 2.1]], whose rows are
+        # proportional, has a determinant of 3.9e-17 after rounding, and
+        # it gave a strain of 3.9e16 with only a warning.
+        if not _has_full_column_rank(self.K):
             raise ValueError(
                 "coefficient matrix is singular: the two modes respond "
                 "identically and cannot separate strain from density"
