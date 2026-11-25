@@ -1,5 +1,161 @@
 # Changelog
 
+## 0.17.0 (2026-11-25)
+
+The smoothness weights of the map inversion can now be chosen from the
+data, the map inversion takes correlated shift errors and is much
+faster for maps with one error bar per mode, a calibration with a
+fitted offset can be planned, decimal commas are read, and two fixes.
+
+### Added
+
+- `choose_smoothing(K, shifts, sigmas, *, separate=False,
+  fill_masked=False, shift_correlation=None, search_range=1e6)`,
+  returning a `SmoothingChoice` (`lam_strain`, `lam_density`,
+  `log_evidence`, `at_lower_bound`, `at_upper_bound`,
+  `n_evaluations`), and `bayesian_log_evidence(K, shifts, sigmas,
+  lam_strain, lam_density=None, *, fill_masked=False,
+  shift_correlation=None)`. The evidence is the probability of the
+  measured shifts given the weights, with the fields integrated out
+  under the smoothness prior read as an intrinsic Gaussian Markov random
+  field: (N - 1)/2 (log lam_s + log lam_n) - 1/2 log det A - 1/2 F, up
+  to a constant, with A the posterior precision and F the objective at
+  the solution. `choose_smoothing` maximizes it (one weight for both
+  fields, or two with `separate=True`) over a range set by the data
+  precision of one pixel, so the range does not depend on the units.
+  Method: D. J. C. MacKay, "Bayesian interpolation", Neural Computation
+  4, 415 (1992), doi:10.1162/neco.1992.4.3.415. A weight whose evidence
+  is within 0.001 of the best at the end of the range is flagged.
+- `bayesian_map_inversion(..., shift_correlation=None)`: correlations
+  between the shift errors of different modes, in the forms
+  `MultiModeModel.invert` takes. The data term of each pixel uses the
+  inverse of S_p = D_p R_p D_p; a missing mode is removed from the pixel
+  (its correlations set to zero, its weight to zero); a NaN in a
+  pixel's matrix makes the whole pixel missing (needs
+  `fill_masked=True`).
+- `ThreeCauseModel.invert`: an infinite sigma leaves that mode out at
+  that pixel, and the model check there counts only the other modes, as
+  in `MultiModeModel` since 0.16.0. A pixel with fewer than three
+  usable modes is refused.
+- `design_references(..., fit_offset=True)`: greedy picks for the
+  calibration with a fitted offset, maximizing det(F) / F_cc (the
+  information about the two lever arms with the offset as a nuisance
+  parameter: the determinant rule of the through-origin design, applied
+  to the lever arms alone).
+- `load_spectrum_table(..., decimal=".")` and
+  `load_map_table(..., decimal=".")`: `decimal=","` reads numbers
+  written with a decimal comma; the default delimiter is then a
+  semicolon if the last line has one, and whitespace otherwise.
+- README examples 20 (choosing the smoothing) and 21 (smoothing with
+  correlated errors); examples 7, 10 and 16 show the new options (see
+  Changed).
+
+### Changed
+
+- `bayesian_map_inversion`: when every pixel has the same data
+  precision and no value is missing (one sigma per mode, and one
+  correlation matrix if any), the maps are solved in the eigenvectors
+  of the pixel lattice instead of by a sparse LU solve. Map only,
+  measured on this machine: 64 x 64 pixels 0.030 s -> 0.0010 s,
+  200 x 200 pixels 1.99 s -> 0.0094 s. On the test inputs the maps
+  agree with 0.16.0 to a relative 1.4e-13 (rounding); the posterior
+  sigmas are computed as before. Per-pixel sigmas and missing values use
+  the unchanged sparse path.
+- `bayesian_map_inversion(..., posterior_sigma=True)`: the `max_dense`
+  limit applies only where the sigmas need one sparse solve per unknown
+  (per-pixel sigmas or missing values). With one sigma per mode they
+  come from the lattice eigenvectors at any size (7 ms for 200 x 200
+  pixels). Before, maps above 2048 pixels were refused in both cases.
+- README examples 7, 10 and 16 print one more line each (the new
+  `fit_offset=True` design, an infinite sigma in `ThreeCauseModel`, a
+  table with decimal commas); their earlier lines are unchanged.
+  Examples 1 to 19 otherwise print the same output as with 0.16.0, and
+  so do the three tutorials. The example 5 text now says how the map
+  is solved and that `choose_smoothing` exists.
+- Results of other existing calls are unchanged: a set of 15 calls
+  covering `bayesian_map_inversion` (per-pixel sigmas, filled gaps),
+  `SeparationModel` (with a correlation, and the graphene set),
+  `MultiModeModel`, `ThreeCauseModel` (finite and NaN sigmas, with and
+  without correlations), `design_references` and `load_map_table`
+  gives bit-identical output under 0.16.0 and 0.17.0, apart from the
+  lattice-path maps above.
+
+### Fixed
+
+- `SeparationModel` refused a lever-arm matrix only when its
+  determinant was exactly zero. Before: `ModeCoefficients` with rows
+  (0.1, 0.3) and (0.7, 2.1), which are proportional, has a determinant
+  of 3.9e-17 after rounding, and shifts of 1 and 2 cm^-1 gave a strain
+  of 3.9e16 with only a condition-number warning. After: refused, with
+  the unit-free rank test `MultiModeModel` uses (which refused this
+  matrix already). A matrix that is exactly singular is refused as
+  before; one in very different units (density in m^-2) is still
+  accepted. Test:
+  `test_separation_model_refuses_a_numerically_singular_matrix`.
+- `bayesian_map_inversion(..., posterior_sigma=True)` refused a 70 x 70
+  map with one sigma per mode (9800 unknowns, above `max_dense` = 4096)
+  although its exact sigmas cost milliseconds. Test:
+  `test_lattice_posterior_sigmas_need_no_max_dense`.
+
+### Not included
+
+- Smoothness weights that change across the map, and any check that a
+  map really changes gradually: `choose_smoothing` assumes both the
+  error bars and the gradual change, and cannot test them.
+- Peak-fit error bars for noise that is correlated between neighboring
+  spectral points: they would need a model of that correlation, which
+  one fit window is too short to estimate reliably.
+- A joint fit of two overlapping Voigt peaks: it needs its own checks
+  (derivatives, recovery of noiseless peaks, error bars against seeded
+  repeats), which have not been done.
+- Resampling spectra onto a common axis in `load_map_table`: the
+  interpolation would correlate the noise of neighboring points, which
+  the fit error bars do not cover. Vendor binary formats: their layouts
+  are not openly specified, and there are no sample files to test a
+  reader against.
+- A calibration fitted for all modes together with correlated errors,
+  and a model check of `multimode_with_calibration` that includes the
+  calibration uncertainty: both would change several tools at once and
+  have not been worked out and tested.
+- `region_mean`, `region_contrast` and `region_profile` for three or
+  more modes.
+
+### Checks (tests)
+
+- New `tests/test_v017.py` (15 tests). Test count: 162 -> 177. The full
+  suite also passes with the oldest allowed dependencies (NumPy 1.22.0,
+  SciPy 1.8.0) on Python 3.9.
+- Evidence: differences between two pairs of weights equal those of
+  the dense covariance form N(s; 0, S + K Q^-1 K^T) with a proper prior
+  Q + delta I, extrapolated to delta = 0 (to 2e-6; measured 9e-9 to
+  3.5e-7), without and with correlations and with missing values; the
+  lattice and LU paths agree (measured 5.7e-14); a constant added to
+  both fields changes nothing (measured 0). On 200 maps drawn from the
+  prior with known weights, the mean score at the true weights is
+  within 4 standard errors of zero (measured 1.8 and 1.5) and 58
+  standard errors below zero at four times the true weight;
+  `choose_smoothing` recovers log lam without bias over 60 maps
+  (measured 1.7 and 0.9 standard errors).
+- Correlated map inversion: at lam = 0 it equals `MultiModeModel` with
+  the same correlation (relative 1e-10; measured 6.5e-15); at lam > 0,
+  with per-pixel sigmas, per-pixel correlation matrices and missing
+  values, maps and posterior sigmas equal a dense whitened
+  least-squares solve built in the test (relative 1e-9; measured
+  1.3e-13); the identity correlation gives the independent-error
+  result (measured 1.9e-14).
+- `ThreeCauseModel` with an infinite sigma equals the model without
+  that mode (measured: identical), with and without correlations.
+- `design_references(..., fit_offset=True)`: on the candidates of
+  README example 7 its picks reach the best determinant of an
+  exhaustive search for 3 to 6 picks (measured: identical); the
+  through-origin picks are 2.05 to 4.31 times worse for the offset fit.
+- Decimal commas: tab- and semicolon-separated tables load to the same
+  arrays as the decimal-point table, bit for bit.
+- Changed test: `test_bayesian_refusals` (tests/test_v06.py) asked for
+  posterior sigmas of an 80 x 80 map with one sigma per mode and
+  expected a refusal. That refusal now applies only where one solve per
+  unknown is needed, so the test passes per-pixel sigmas.
+
 ## 0.16.0 (2026-11-10)
 
 Correlated shift errors between any number of modes, shot-noise error
@@ -62,7 +218,7 @@ information, two argument checks, and a CI fix.
   `test_infinite_sigma_checks_only_the_remaining_modes`,
   `test_a_single_usable_mode_is_always_refused`.
 - `compare_mode_sets` with a `mode_names` list longer than the number
-  of modes labelled the subsets with its first names (wrong whenever
+  of modes labeled the subsets with its first names (wrong whenever
   the list does not match the rows of `K`); a shorter list raised
   `IndexError`. Both now raise `ValueError`. Test:
   `test_compare_mode_sets_refuses_names_of_another_length`.
@@ -568,10 +724,10 @@ calibration uncertainty for any number of modes.
   two peaks are fitted together (two Lorentzians on one shared
   constant or linear baseline) over the range spanned by both windows,
   starting from the separate window fits. This removes the pull of one
-  peak's tail on the other's fitted centre, listed as a limit until
+  peak's tail on the other's fitted center, listed as a limit until
   now (0.0795 and -0.0279 cm^-1 on the noiseless pair of README
   example 13; 0 to printed precision with `joint=True`). The
-  correlation of the two fitted centres is reported in the new
+  correlation of the two fitted centers is reported in the new
   `PeakFit.center_correlation` (NaN for single-peak fits). Default
   `joint=False` is unchanged.
 - `fit_map(..., min_snr=None, fwhm_range=None)`: optional checks that
@@ -584,8 +740,8 @@ calibration uncertainty for any number of modes.
   error bar per mode and pixel), lifting the "one error value per mode"
   limit; and `fill_masked=True` treats NaN shifts or error bars as
   missing measurements that the smoothness prior fills from the
-  neighbours (needs both smoothness weights > 0 and unmasked data
-  that fix both fields; refused otherwise). Default behaviour is
+  neighbors (needs both smoothness weights > 0 and unmasked data
+  that fix both fields; refused otherwise). Default behavior is
   unchanged.
 - `multimode_with_calibration(calibration, shifts, sigmas)`: the
   calibration-uncertainty propagation of `separation_with_calibration`
@@ -616,7 +772,7 @@ calibration uncertainty for any number of modes.
   refuses sigmas that are not finite and positive, a non-finite `K`
   and a `K` that is not (m, 2), with a `ValueError` that says which.
 
-### Behaviour changes
+### Behavior changes
 
 - `fit_map`, default settings: pixels with a negative fitted height
   are masked. Before/after on README example 12 (20 peak-free
@@ -656,7 +812,7 @@ calibration uncertainty for any number of modes.
   inversion, the separate-window tail bias as the only option, two
   modes only for calibration propagation; added: filled pixels are
   interpolations, the joint fit needs a span without a third peak and
-  its centre correlation is not used by the inversion, the
+  its center correlation is not used by the inversion, the
   calibration part is an error common to the whole map, the
   `fit_map` thresholds are the user's choice).
 - `bayesian`, `mapfit`, `fitting`, `propagate` module docstrings
